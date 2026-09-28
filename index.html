@@ -145,6 +145,14 @@ label.f textarea{min-height:72px;resize:vertical;line-height:1.55}
 .tag button:hover{background:#DADDE2}
 .addrow{display:flex;gap:6px}
 .addrow input{flex:1;min-width:0;border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:#FBFBFC}
+.wreg{border-top:1px solid var(--line);padding:10px 0}
+.wreg:first-of-type{border-top:0;padding-top:0}
+.wreg-in{display:grid;grid-template-columns:1fr 1fr auto 72px auto;gap:6px;align-items:center}
+.wreg-in input{min-width:0;width:100%;border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:#FBFBFC}
+.wreg-in span{color:var(--muted)}
+.wreg-foot{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-top:6px;font-size:13px;color:var(--muted)}
+.wreg-foot b{color:var(--ink)}
+.wreg-foot em{color:var(--danger);font-style:normal}
 .checks label{display:flex;align-items:center;gap:8px;padding:5px 0}
 .note{font-size:13px;background:var(--amber-soft);color:var(--amber);border-radius:8px;padding:10px 12px;margin-bottom:14px}
 
@@ -179,8 +187,11 @@ a.btn{text-decoration:none;color:var(--ink);display:inline-block}
 .rd-sel button[aria-pressed="true"]{background:#fff;color:#1E2229}
 .rd-sel button.danger{border-color:#E08A80;color:#FFB4AB}
 .rd-hint{margin:0;padding:8px 12px;font-size:13px;color:#C9CDD4;background:#262A31}
-.rd-pages{flex:1;overflow:auto;padding:12px 8px 40px;display:flex;flex-direction:column;align-items:center;gap:12px;-webkit-overflow-scrolling:touch}
-.rd-page{position:relative;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.4);touch-action:auto;user-select:none;-webkit-user-select:none}
+.redactor{touch-action:pan-x pan-y}
+.rd-pages{flex:1;overflow:auto;padding:12px 8px 40px;display:flex;flex-direction:column;align-items:flex-start;gap:12px;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+.rd-pages > .rd-page{margin:0 auto;flex-shrink:0}
+.seg .zval{min-width:60px;font-variant-numeric:tabular-nums}
+.rd-page{position:relative;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.4);touch-action:pan-x pan-y;user-select:none;-webkit-user-select:none}
 .rd-page.draw{touch-action:none;cursor:crosshair}
 .rd-page canvas{display:block}
 .rd-rect{position:absolute;outline:2px dashed #E5484D;outline-offset:0}
@@ -265,7 +276,7 @@ const COPY_ITEMS = [
   ['content','工事内容', j => j.content],
   ['cnotes','元請けからの注意事項', j => j.cnotes],
   ['report','写真・報告のルール', j => j.report],
-  ['workers','担当作業員', j => j.workers.map(w => w.name + (w.role === 'trainee' ? '（研修）' : '')).filter(n => n && n !== '（研修）').join('・')],
+  ['workers','担当作業員', j => j.workers.map(w => { const n = wName(w); return n ? n + (w.role === 'trainee' ? '（研修）' : '') : ''; }).filter(Boolean).join('・')],
   ['pay','作業員への支払額', j => payLine(j)],
   ['wnotes','作業員向けメモ', j => j.wnotes],
   ['dropbox','Dropboxのリンク', j => j.dropbox],
@@ -302,6 +313,37 @@ let sumMonth = (() => { const d = new Date(); return `${d.getFullYear()}-${Strin
 let sumWorker = null;
 let sumDoneOnly = false;
 const PDF_MAX = 10 * 1024 * 1024;
+
+/* ---------- 作業員の名前（名字・名前・区別） ---------- */
+function normWorkers(list){
+  return (list || []).map(w => typeof w === 'string'
+    ? {id: uid(), sei: w.trim(), mei: '', tag: ''}
+    : Object.assign({id: uid(), sei: '', mei: '', tag: ''}, w));
+}
+function cleanTag(v){ return String(v || '').replace(/[()（）\s　]/g, ''); }
+// 案件・TimeTreeなどで使う短い名前（名字だけ。同じ名字の人がいれば 名字(区別)）
+function shortName(p){
+  if(!p) return '';
+  const dup = data.settings.workers.some(o => o !== p && o.sei === p.sei);
+  if(!dup) return p.sei;
+  if(p.tag) return `${p.sei}(${p.tag})`;
+  return p.sei + p.mei;   // 区別が未入力のときは名字＋名前で見分ける
+}
+// 明細書などで使うフルネーム
+function fullName(p){ return p ? [p.sei, p.mei].filter(Boolean).join(' ') : ''; }
+// 案件の作業員欄から登録済みの人を探す（古いデータは名前で探す）
+function findWorker(w){
+  const ws = data.settings.workers;
+  if(!w) return null;
+  if(w.wid){ const p = ws.find(x => x.id === w.wid); if(p) return p; }
+  const n = (w.name || '').trim();
+  if(!n) return null;
+  const a = ws.filter(x => shortName(x) === n);
+  if(a.length === 1) return a[0];
+  const b = ws.filter(x => x.sei === n);
+  return b.length === 1 ? b[0] : null;
+}
+function wName(w){ const p = findWorker(w); return p ? shortName(p) : (w.name || '').trim(); }
 
 function uid(){ return (crypto.randomUUID ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => { const r = Math.random()*16|0; return (c === 'x' ? r : (r&3|8)).toString(16); })); }
 function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
@@ -343,13 +385,30 @@ async function loadAll(){
   const d = defaultData();
   data.settings = Object.assign(d.settings, (st && st.data) || {});
   if(!data.settings.presets) data.settings.presets = [];
+  const oldFormat = data.settings.workers.some(w => typeof w === 'string');
+  data.settings.workers = normWorkers(data.settings.workers);
+  if(oldFormat) await persist();   // 名字だけの古い登録を新しい形に
   await loadJobs();
+  await linkOldJobs();
   return true;
 }
 async function loadJobs(){
   const {data: rows, error} = await sb.from('jobs').select('id, data').eq('company_id', companyId);
   if(error) throw error;
   data.jobs = rows.map(r => Object.assign(blankJob(), r.data || {}, {id: r.id}));
+}
+// 名前だけで保存されている古い案件を、登録済みの作業員に結びつけて保存し直す
+// （あとから同じ名字の人を登録しても、誰の案件か分からなくならないように）
+async function linkOldJobs(){
+  for(const j of data.jobs){
+    let changed = false;
+    j.workers.forEach(w => {
+      if(w.wid || !(w.name || '').trim()) return;
+      const p = findWorker(w);
+      if(p){ w.wid = p.id; w.name = shortName(p); changed = true; }
+    });
+    if(changed){ try{ await saveJobCloud(j); }catch(e){} }
+  }
 }
 async function persist(){   // 設定を保存
   const {error} = await sb.from('settings').upsert({company_id: companyId, data: data.settings});
@@ -446,7 +505,7 @@ function profit(j){ return num(j.received) - totalPay(j) - num(j.expenses) - num
 
 /* ---------- TimeTree text ---------- */
 function ttTitle(j){
-  const names = j.workers.map(w => w.name.trim()).filter(Boolean).join('・');
+  const names = j.workers.map(wName).filter(Boolean).join('・');
   const client = j.client ? `[${j.client}]` : '';
   const room = j.room ? '　' + j.room : '';
   return `${names}${client}${j.property}${room}`;
@@ -458,7 +517,7 @@ function payLine(j){
     const w = paid[0];
     return `${yen(w.pay)}税込${w.role === 'lead' ? '＋研修' : ''}`;
   }
-  return paid.map(w => `${w.name || '（未定）'} ${yen(w.pay)}税込${w.role === 'lead' ? '＋研修' : ''}`).join('\n');
+  return paid.map(w => `${wName(w) || '（未定）'} ${yen(w.pay)}税込${w.role === 'lead' ? '＋研修' : ''}`).join('\n');
 }
 function ttMemo(j){
   const m = data.settings.memo;
@@ -473,7 +532,7 @@ function ttMemo(j){
   if(m.wnotes && j.wnotes) s3.push(j.wnotes);
   let s4 = '';
   if(m.contacted){
-    const c = j.workers.filter(w => w.contacted && w.name.trim()).map(w => w.name.trim());
+    const c = j.workers.filter(w => w.contacted && wName(w)).map(wName);
     if(c.length) s4 = c.join('・') + '連絡済';
   }
   return [s1.join('\n'), s2, s3.join('\n'), s4].filter(Boolean).join('\n\n');
@@ -498,7 +557,7 @@ function renderList(){
     </div>
     ${jobs.length ? jobs.map(j => {
       const d = fmtDate(j.date);
-      const names = j.workers.map(w => w.name).filter(Boolean).join('・') || '作業員未定';
+      const names = j.workers.map(wName).filter(Boolean).join('・') || '作業員未定';
       return `<button class="job" data-id="${j.id}" aria-current="${j.id === currentId}">
         <div class="jdate ${d ? '' : 'none'}">${d ? `<b>${d.md}</b><span>${d.wd}</span>` : '<b>日程<br>未定</b>'}</div>
         <div>
@@ -656,22 +715,25 @@ function renderPdfArea(){
     area.innerHTML = `<label class="btn small filebtn">PDFを選ぶ<input type="file" accept="application/pdf" id="pdfInput" hidden></label>`;
   }
 }
-function workerPicker(name){
-  const names = data.settings.workers;
-  if(!names.length) return `<input data-k="name" value="${esc(name)}" placeholder="名前">`;
-  const known = !name || names.includes(name);
+function workerPicker(w){
+  const ws = data.settings.workers;
+  const name = (w.name || '').trim();
+  if(!ws.length) return `<input type="hidden" data-k="wid" value=""><input data-k="name" value="${esc(name)}" placeholder="名前">`;
+  const p = findWorker(w);
+  const known = !name || !!p;
   return `<select data-k="pick">
       <option value="">（選ぶ）</option>
-      ${names.map(n => `<option value="${esc(n)}" ${n === name ? 'selected' : ''}>${esc(n)}</option>`).join('')}
+      ${ws.map(o => `<option value="${esc(o.id)}" ${p && p.id === o.id ? 'selected' : ''}>${esc(shortName(o))}</option>`).join('')}
       <option value="__other" ${known ? '' : 'selected'}>その他（手入力）</option>
     </select>
-    <input data-k="name" value="${esc(name)}" placeholder="名前を入力" ${known ? 'hidden' : ''} style="margin-top:6px">`;
+    <input type="hidden" data-k="wid" value="${p ? esc(p.id) : ''}">
+    <input data-k="name" value="${esc(p ? shortName(p) : name)}" placeholder="名前を入力" ${known ? 'hidden' : ''} style="margin-top:6px">`;
 }
 function renderWorkers(list){
   const box = document.getElementById('workers');
   box.innerHTML = list.map((w,i) => `
     <div class="wrow">
-      <label class="f">作業員${workerPicker(w.name)}</label>
+      <label class="f">作業員${workerPicker(w)}</label>
       <label class="f">区分<select data-k="role">${Object.entries(ROLES).map(([k,v]) => `<option value="${k}" ${k === w.role ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
       <label class="f">支払額（税込）<input data-k="pay" type="number" inputmode="numeric" value="${esc(w.pay)}" placeholder="0"></label>
       <button type="button" class="btn small" data-remove="${i}" aria-label="この作業員を外す">外す</button>
@@ -682,12 +744,18 @@ function renderWorkers(list){
     </div>`).join('');
 }
 function readWorkers(){
-  return [...document.querySelectorAll('.wrow')].map(r => ({
-    name: r.querySelector('[data-k=name]').value.trim(),
-    role: r.querySelector('[data-k=role]').value,
-    pay: r.querySelector('[data-k=pay]').value === '' ? '' : num(r.querySelector('[data-k=pay]').value),
-    contacted: r.querySelector('[data-k=contacted]').checked
-  }));
+  return [...document.querySelectorAll('.wrow')].map(r => {
+    const w = {
+      wid: r.querySelector('[data-k=wid]').value,
+      name: r.querySelector('[data-k=name]').value.trim(),
+      role: r.querySelector('[data-k=role]').value,
+      pay: r.querySelector('[data-k=pay]').value === '' ? '' : num(r.querySelector('[data-k=pay]').value),
+      contacted: r.querySelector('[data-k=contacted]').checked
+    };
+    const p = findWorker(w);
+    if(p){ w.wid = p.id; w.name = shortName(p); } else w.wid = '';
+    return w;
+  });
 }
 function readForm(){
   const g = id => document.getElementById('f-' + id).value;
@@ -729,13 +797,17 @@ function sumRows(){
     if(!j.date || !j.date.startsWith(sumMonth)) return;
     if(sumDoneOnly && !['完了','入金済'].includes(j.status)) return;
     j.workers.forEach(w => {
-      if(!w.name) return;
+      const p = findWorker(w);
+      const label = p ? shortName(p) : (w.name || '').trim();
+      if(!label) return;
       const base = num(w.pay), extra = w.role === 'lead' ? fee : 0;
-      rows.push({job:j, worker:w.name, role:w.role, base, extra, pay:base + extra});
+      rows.push({job:j, key: p ? p.id : 'n:' + label, worker:label, role:w.role, base, extra, pay:base + extra});
     });
   });
   return rows.sort((a,b) => (a.job.date + (a.job.time || '')) < (b.job.date + (b.job.time || '')) ? -1 : 1);
 }
+function sumPerson(){ return data.settings.workers.find(x => x.id === sumWorker) || null; }
+function sumLabel(){ const p = sumPerson(); return p ? shortName(p) : String(sumWorker || '').replace(/^n:/, ''); }
 function monthLabel(){ const [y,m] = sumMonth.split('-'); return `${y}年${Number(m)}月`; }
 function shortDate(d){ const [y,mo,da] = d.split('-').map(Number); return `${mo}/${da}(${WEEK[new Date(y,mo-1,da).getDay()]})`; }
 function roleNote(r){ return r.role === 'lead' ? '研修手当込' : r.role === 'trainee' ? '研修' : ''; }
@@ -749,7 +821,7 @@ function renderSummary(){
     </div>`;
   if(!sumWorker){
     const byW = {};
-    all.forEach(r => { (byW[r.worker] ||= {count:0,total:0}); byW[r.worker].count++; byW[r.worker].total += r.pay; });
+    all.forEach(r => { (byW[r.key] ||= {count:0,total:0,label:r.worker}); byW[r.key].count++; byW[r.key].total += r.pay; });
     const names = Object.keys(byW).sort((a,b) => byW[b].total - byW[a].total);
     const grand = all.reduce((s,r) => s + r.pay, 0);
     right.innerHTML = `<div class="editor">
@@ -759,7 +831,7 @@ function renderSummary(){
         <h3>${monthLabel()}</h3>
         <p class="hint">名前を押すと、その人の明細が見られます</p>
         ${data.jobs.some(j => !j.date) ? `<div class="note">施工日が入っていない案件が ${data.jobs.filter(j => !j.date).length} 件あります。施工日を入れると集計に入ります。</div>` : ''}
-        ${names.length ? names.map(n => `<button class="wsum" data-sumworker="${esc(n)}"><div><b>${esc(n)}</b><br><span>${byW[n].count}件</span></div><b>${yen(byW[n].total)}</b></button>`).join('')
+        ${names.length ? names.map(n => `<button class="wsum" data-sumworker="${esc(n)}"><div><b>${esc(byW[n].label)}</b><br><span>${byW[n].count}件</span></div><b>${yen(byW[n].total)}</b></button>`).join('')
           : '<div class="empty">この月の案件はありません</div>'}
         ${names.length ? `<div class="sum-total"><span>全員の合計</span><span>${yen(grand)}</span></div>
         <div class="actions">
@@ -770,11 +842,11 @@ function renderSummary(){
     </div>`;
     return;
   }
-  const rows = all.filter(r => r.worker === sumWorker);
+  const rows = all.filter(r => r.key === sumWorker);
   const total = rows.reduce((s,r) => s + r.pay, 0);
   right.innerHTML = `<div class="editor">
     <button class="linkback" id="sumBack">‹ 全員の一覧へ</button>
-    <div class="ed-head"><h2>${esc(sumWorker)}さんの明細</h2></div>
+    <div class="ed-head"><h2>${esc(sumLabel())}さんの明細</h2></div>
     ${controls}
     <section class="box">
       <h3>${monthLabel()}分</h3>
@@ -795,10 +867,10 @@ function renderSummary(){
   </div>`;
 }
 function statementText(){
-  const rows = sumRows().filter(r => r.worker === sumWorker);
+  const rows = sumRows().filter(r => r.key === sumWorker);
   const total = rows.reduce((s,r) => s + r.pay, 0);
   const lines = rows.map(r => `${shortDate(r.job.date)} ${r.job.property}${r.job.room ? ' ' + r.job.room : ''}　${yen(r.pay)}${r.extra ? '（研修手当込）' : ''}`);
-  return `${sumWorker}さん　${monthLabel()}分\n\n${lines.join('\n')}\n\n合計 ${rows.length}件　${yen(total)}（税込）`;
+  return `${sumLabel()}さん　${monthLabel()}分\n\n${lines.join('\n')}\n\n合計 ${rows.length}件　${yen(total)}（税込）`;
 }
 function tableData(rows){
   const head = ['施工日','作業員','物件名','部屋','発注元','区分','基本額','研修手当','支払額','状態'];
@@ -838,10 +910,12 @@ function getDraft(){
   const st = data.settings.statements || (data.settings.statements = {});
   const key = stmtKey();
   if(st[key]) return st[key];
-  const prevKey = Object.keys(st).filter(k => k.startsWith(sumWorker + '|')).sort().pop();
+  const legacy = sumLabel() + '|';   // 以前の明細書（名前で保存していたもの）
+  const prevKey = Object.keys(st).filter(k => k.startsWith(sumWorker + '|') || k.startsWith(legacy)).sort((a,b) => a.split('|')[1] < b.split('|')[1] ? -1 : 1).pop();
   const prev = prevKey ? st[prevKey] : null;
+  const p = sumPerson();
   return {
-    fullName: prev ? prev.fullName : sumWorker,
+    fullName: p && p.mei ? fullName(p) : (prev ? prev.fullName : sumLabel()),
     issueDate: isoDate(new Date()),
     payDate: defaultPayDate(),
     commission: {
@@ -877,7 +951,7 @@ function readDraft(){
   };
 }
 function calcStatement(d){
-  const rows = sumRows().filter(r => r.worker === sumWorker && r.pay > 0);
+  const rows = sumRows().filter(r => r.key === sumWorker && r.pay > 0);
   const siteTotal = rows.reduce((s,r) => s + r.pay, 0);
   const c = d.commission;
   const salesTotal = c.rows.reduce((s,r) => s + num(r.sales), 0);
@@ -900,7 +974,7 @@ function sheetHtml(d){
   <div class="sh-title">支払明細書</div>
   <div class="sh-top">
     <div class="sh-left">
-      <div class="sh-to">${esc(d.fullName || sumWorker)} 様</div>
+      <div class="sh-to">${esc(d.fullName || sumLabel())} 様</div>
       <table class="sh-meta">
         <tr><th>対象月</th><td>${y}年${m}月度</td></tr>
         <tr><th>対象期間</th><td>${y}/${m}/1〜${y}/${m}/${last}</td></tr>
@@ -935,7 +1009,7 @@ function renderStatement(){
   const cm = d.commission;
   const is = data.settings.issuer || {};
   document.getElementById('right').innerHTML = `<div class="editor stmt" id="stmt">
-    <button class="linkback" id="stmtBack">‹ ${esc(sumWorker)}さんの明細へ</button>
+    <button class="linkback" id="stmtBack">‹ ${esc(sumLabel())}さんの明細へ</button>
     <div class="ed-head"><h2>支払明細書（${monthLabel()}分）</h2></div>
     ${is.name ? '' : '<div class="note">設定の「発行元の情報」に会社名などを入れると、明細書に表示されます。</div>'}
     <section class="box">
@@ -1003,7 +1077,7 @@ async function saveSheetImage(){
     const canvas = await window.html2canvas(sheet, {scale:2, backgroundColor:'#ffffff'});
     sheet.style.transform = prev;
     const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
-    const name = `支払明細書_${(readDraft().fullName || sumWorker)}_${sumMonth}.png`;
+    const name = `支払明細書_${(readDraft().fullName || sumLabel())}_${sumMonth}.png`;
     const file = new File([blob], name, {type:'image/png'});
     if(navigator.canShare && navigator.canShare({files:[file]})){
       try{ await navigator.share({files:[file], title:name}); }catch(e){ if(e.name !== 'AbortError') throw e; }
@@ -1060,7 +1134,7 @@ async function openRedactor(){
     rects = cloneRects(t);
     fromTemplate = Object.values(rects).some(a => a.length);
   }
-  rd = {rects, mode:'draw', sel:null, canvases:[], doc:null};
+  rd = {rects, mode:'draw', sel:null, canvases:[], doc:null, zoom:1, cw:0, pointers:new Set()};
 
   const ov = document.createElement('div');
   ov.id = 'redactor'; ov.className = 'redactor';
@@ -1074,6 +1148,11 @@ async function openRedactor(){
       <div class="seg" role="group" aria-label="操作">
         <button type="button" id="rdDraw" aria-pressed="true">✏️ 囲む</button>
         <button type="button" id="rdScroll" aria-pressed="false">✋ 動かす</button>
+      </div>
+      <div class="seg" role="group" aria-label="拡大・縮小">
+        <button type="button" id="rdZoomOut" aria-label="縮小">－</button>
+        <button type="button" id="rdZoomReset" class="zval">100%</button>
+        <button type="button" id="rdZoomIn" aria-label="拡大">＋</button>
       </div>
       <div class="rd-sel" id="rdSel" hidden>
         <span>色</span>
@@ -1094,14 +1173,9 @@ async function openRedactor(){
     const box = document.getElementById('rdPages');
     box.innerHTML = '';
     const cw = Math.min(box.clientWidth - 16, 900);
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    rd.cw = cw;
     for(let i = 0; i < rd.doc.numPages; i++){
-      const page = await rd.doc.getPage(i + 1);
-      const base = page.getViewport({scale:1});
-      const vp = page.getViewport({scale: (cw / base.width) * dpr});
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.floor(vp.width); canvas.height = Math.floor(vp.height);
-      await page.render({canvasContext: canvas.getContext('2d', {willReadFrequently:true}), viewport: vp}).promise;
+      const canvas = await renderPageCanvas(i, cw);
       const wrap = document.createElement('div');
       wrap.className = 'rd-page draw'; wrap.dataset.page = i;
       wrap.style.width = cw + 'px';
@@ -1115,14 +1189,92 @@ async function openRedactor(){
       bindPage(wrap, i);
     }
     Object.keys(rd.rects).forEach(k => { if(Number(k) >= rd.doc.numPages) delete rd.rects[k]; });
+    bindZoom(box);
   }catch(e){
     document.getElementById('rdPages').innerHTML = '<p class="rd-hint">発注書を読み込めませんでした</p>';
   }
 }
+async function renderPageCanvas(i, cssWidth){
+  const page = await rd.doc.getPage(i + 1);
+  const base = page.getViewport({scale:1});
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const px = Math.min(cssWidth * dpr, 2600);
+  const vp = page.getViewport({scale: px / base.width});
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.floor(vp.width); canvas.height = Math.floor(vp.height);
+  await page.render({canvasContext: canvas.getContext('2d', {willReadFrequently:true}), viewport: vp}).promise;
+  canvas.style.width = '100%';
+  return canvas;
+}
+/* アプリ内の拡大・縮小（画面全体は拡大しない） */
+let zoomTimer = null;
+function setZoom(z, cx, cy){
+  const box = document.getElementById('rdPages');
+  if(!rd || !box) return;
+  z = Math.min(4, Math.max(1, z));
+  const old = rd.zoom;
+  if(Math.abs(z - old) < .001) return;
+  const b = box.getBoundingClientRect();
+  const fx = cx == null ? box.clientWidth / 2 : cx - b.left;
+  const fy = cy == null ? box.clientHeight / 2 : cy - b.top;
+  const ax = box.scrollLeft + fx, ay = box.scrollTop + fy;
+  rd.zoom = z;
+  box.querySelectorAll('.rd-page').forEach(p => p.style.width = (rd.cw * z) + 'px');
+  const r = z / old;
+  box.scrollLeft = ax * r - fx;
+  box.scrollTop = ay * r - fy;
+  const zv = document.getElementById('rdZoomReset');
+  if(zv) zv.textContent = Math.round(z * 100) + '%';
+  clearTimeout(zoomTimer);
+  zoomTimer = setTimeout(sharpenPages, 350);
+}
+async function sharpenPages(){
+  if(!rd) return;
+  const want = rd.cw * rd.zoom;
+  for(let i = 0; i < rd.canvases.length; i++){
+    const old = rd.canvases[i];
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    if(Math.abs(old.width - Math.min(want * dpr, 2600)) < 40) continue;
+    const c = await renderPageCanvas(i, want);
+    if(!rd) return;
+    old.replaceWith(c);
+    rd.canvases[i] = c;
+    drawRects(i);
+  }
+}
+function bindZoom(box){
+  let gStart = 1;
+  // iPhone（Safari）の2本指ピンチ
+  box.addEventListener('gesturestart', e => { e.preventDefault(); gStart = rd.zoom; });
+  box.addEventListener('gesturechange', e => { e.preventDefault(); setZoom(gStart * e.scale, e.clientX, e.clientY); });
+  box.addEventListener('gestureend', e => e.preventDefault());
+  // その他のブラウザの2本指ピンチ
+  let t0 = null;
+  const dist = t => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+  box.addEventListener('touchstart', e => { if(e.touches.length === 2){ t0 = {d: dist(e.touches), z: rd.zoom}; } }, {passive:true});
+  box.addEventListener('touchmove', e => {
+    if(e.touches.length === 2 && t0){
+      e.preventDefault();
+      const cx = (e.touches[0].clientX + e.touches[1].clientX) / 2, cy = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+      setZoom(t0.z * dist(e.touches) / t0.d, cx, cy);
+    }
+  }, {passive:false});
+  box.addEventListener('touchend', e => { if(e.touches.length < 2) t0 = null; });
+}
+// 画面に触れている指の数を数える（2本指ならピンチ）
+document.addEventListener('pointerdown', e => { if(rd) rd.pointers.add(e.pointerId); }, true);
+const dropPointer = e => { if(rd) rd.pointers.delete(e.pointerId); };
+document.addEventListener('pointerup', dropPointer, true);
+document.addEventListener('pointercancel', dropPointer, true);
+// 塗りつぶし画面を開いている間は、画面全体の拡大を止める
+document.addEventListener('gesturestart', e => { if(rd) e.preventDefault(); });
+document.addEventListener('touchmove', e => { if(rd && e.touches.length > 1) e.preventDefault(); }, {passive:false});
+
 function closeRedactor(){
   const ov = document.getElementById('redactor');
   if(ov) ov.remove();
   document.body.style.overflow = '';
+  clearTimeout(zoomTimer);
   if(rd && rd.doc) rd.doc.destroy();
   rd = null;
 }
@@ -1187,7 +1339,9 @@ function bindPage(wrap, i){
     const b = wrap.getBoundingClientRect();
     return {x: Math.min(1, Math.max(0, (e.clientX - b.left) / b.width)), y: Math.min(1, Math.max(0, (e.clientY - b.top) / b.height))};
   };
+  const cancel = () => { if(temp) temp.remove(); start = null; temp = null; };
   wrap.addEventListener('pointerdown', e => {
+    if(rd.pointers.size > 1){ cancel(); return; }   // 2本指はピンチ（拡大）として扱う
     const hit = e.target.closest('.rd-rect');
     if(hit){ selectRect([i, Number(hit.dataset.k)]); return; }
     if(rd.mode !== 'draw') { selectRect(null); return; }
@@ -1282,6 +1436,9 @@ document.addEventListener('click', e => {
   else if(t.id === 'rdDone') finishRedactor();
   else if(t.id === 'rdDraw') setRdMode('draw');
   else if(t.id === 'rdScroll') setRdMode('scroll');
+  else if(t.id === 'rdZoomIn') setZoom(rd.zoom * 1.5);
+  else if(t.id === 'rdZoomOut') setZoom(rd.zoom / 1.5);
+  else if(t.id === 'rdZoomReset') setZoom(1);
   else if(t.id === 'rdDel' && rd.sel){ const [i,k] = rd.sel; rd.rects[i].splice(k,1); selectRect(null); drawRects(i); }
   else if(t.dataset.rdcolor && rd.sel){ const [i,k] = rd.sel; rd.rects[i][k].color = t.dataset.rdcolor; selectRect(rd.sel); }
 });
@@ -1302,9 +1459,13 @@ async function loadMembers(){
 async function linkWorker(){
   const email = document.getElementById('linkEmail').value.trim();
   const nameEl = document.getElementById('linkName');
-  const name = nameEl.value.trim();
+  let name = nameEl.value.trim(), wid = null;
+  if(nameEl.tagName === 'SELECT'){
+    const p = data.settings.workers.find(x => x.id === nameEl.value);
+    name = p ? shortName(p) : ''; wid = p ? p.id : null;
+  }
   if(!email || !name){ toast('メールアドレスと名前を入れてください'); return; }
-  const {error} = await sb.rpc('link_worker', {worker_email: email, name});
+  const {error} = await sb.rpc('link_worker', {worker_email: email, name, wid});
   if(error){
     const m = String(error.message || '');
     toast(m.includes('見つかりません') ? 'このメールアドレスのアカウントが見つかりません' : m.includes('自分自身') ? '自分自身は作業員にできません' : '紐づけに失敗しました');
@@ -1314,6 +1475,8 @@ async function linkWorker(){
   toast(`${name}さんを紐づけました`);
   loadMembers();
 }
+
+function calUrl(){ return new URL('calendar.html', location.href).href.split('?')[0]; }
 
 /* ---------- settings ---------- */
 function renderSettings(){
@@ -1333,9 +1496,22 @@ function renderSettings(){
     </section>
     <section class="box">
       <h3>作業員</h3>
-      <p class="hint">登録しておくと、名前を入れるときに候補に出ます</p>
-      <div class="tags">${s.workers.map((w,i) => `<span class="tag">${esc(w)}<button data-delworker="${i}" aria-label="${esc(w)}を削除">×</button></span>`).join('') || '<span class="hint">まだ登録がありません</span>'}</div>
-      <div class="addrow"><input id="newWorker" placeholder="名前"><button class="btn" id="addWorkerSetting">追加</button></div>
+      <p class="hint">案件・TimeTree・集計には名字だけ、支払明細書にはフルネームが出ます。同じ名字の人がいるときは（ ）に見分ける文字を入れてください（例：晋 → 松田(晋)）</p>
+      ${s.workers.length ? s.workers.map(w => `<div class="wreg">
+        <div class="wreg-in">
+          <input data-wreg="${esc(w.id)}:sei" value="${esc(w.sei)}" placeholder="名字" aria-label="名字">
+          <input data-wreg="${esc(w.id)}:mei" value="${esc(w.mei)}" placeholder="名前" aria-label="名前">
+          <span>(</span><input data-wreg="${esc(w.id)}:tag" value="${esc(w.tag)}" placeholder="区別" aria-label="同じ名字の人との区別"><span>)</span>
+        </div>
+        <div class="wreg-foot"><span data-wprev="${esc(w.id)}"></span><button type="button" class="btn small danger" data-delworker="${esc(w.id)}">削除</button></div>
+      </div>`).join('') : '<p class="hint">まだ登録がありません</p>'}
+      <div class="subhead" style="margin-top:12px">新しく追加</div>
+      <div class="wreg-in">
+        <input id="nwSei" placeholder="名字" aria-label="名字">
+        <input id="nwMei" placeholder="名前" aria-label="名前">
+        <span>(</span><input id="nwTag" placeholder="区別" aria-label="同じ名字の人との区別"><span>)</span>
+      </div>
+      <button type="button" class="btn small primary" id="addWorkerSetting" style="margin-top:8px">追加</button>
     </section>
     <section class="box">
       <h3>作業員のログイン（カレンダー用）</h3>
@@ -1343,9 +1519,13 @@ function renderSettings(){
       <div id="memberList"><p class="hint">読み込み中…</p></div>
       <div class="grid" style="margin-top:10px">
         <label class="f">メールアドレス<input id="linkEmail" type="email" autocomplete="off"></label>
-        <label class="f">名前${s.workers.length ? `<select id="linkName">${s.workers.map(w => `<option>${esc(w)}</option>`).join('')}</select>` : '<input id="linkName" placeholder="例：松田">'}</label>
+        <label class="f">名前${s.workers.length ? `<select id="linkName">${s.workers.map(w => `<option value="${esc(w.id)}">${esc(shortName(w))}${w.mei ? `（${esc(fullName(w))}）` : ''}</option>`).join('')}</select>` : '<input id="linkName" placeholder="例：松田">'}</label>
       </div>
       <button type="button" class="btn small primary" id="linkWorker" style="margin-top:10px">紐づける</button>
+      <div class="subhead" style="margin-top:16px">作業員さんに渡すカレンダーのURL</div>
+      <div class="pdfbox"><span class="name">${esc(calUrl())}</span>
+        <button type="button" class="btn small" id="copyCalUrl">コピー</button>
+        <a class="btn small" href="${esc(calUrl())}" target="_blank" rel="noopener">開く</a></div>
     </section>
     <section class="box">
       <h3>発注元（上の元請け会社）</h3>
@@ -1389,9 +1569,20 @@ function renderSettings(){
       <button type="button" class="btn small" id="addPreset">＋ パターンを追加</button>
     </section>
   </div>`;
+  updateWregPreviews();
 }
+function updateWregPreviews(){
+  data.settings.workers.forEach(w => {
+    const el = document.querySelector(`[data-wprev="${CSS.escape(w.id)}"]`);
+    if(!el) return;
+    const dup = data.settings.workers.some(o => o !== w && o.sei === w.sei);
+    const warn = dup && !w.tag ? '<br><em>同じ名字の人がいます。（ ）に区別を入れてください</em>' : '';
+    el.innerHTML = `表示：<b>${esc(shortName(w) || '—')}</b>　明細書：<b>${esc(fullName(w) || '—')}</b>${warn}`;
+  });
+}
+let delWorkerArmed = null;
 function refreshDatalist(){
-  document.getElementById('workerList').innerHTML = data.settings.workers.map(w => `<option value="${esc(w)}">`).join('');
+  document.getElementById('workerList').innerHTML = data.settings.workers.map(w => `<option value="${esc(shortName(w))}">`).join('');
 }
 
 /* ---------- navigation ---------- */
@@ -1474,9 +1665,9 @@ document.getElementById('right').addEventListener('click', async e => {
   if(t.id === 'sumBack'){ sumWorker = null; renderSummary(); return; }
   if(t.id === 'copyStatement') copy(statementText(), false);
   if(t.id === 'copyTsvAll') copy(toTsv(tableData(sumRows())), false);
-  if(t.id === 'copyTsvOne') copy(toTsv(tableData(sumRows().filter(r => r.worker === sumWorker))), false);
+  if(t.id === 'copyTsvOne') copy(toTsv(tableData(sumRows().filter(r => r.key === sumWorker))), false);
   if(t.id === 'csvAll') downloadCsv(tableData(sumRows()), `支払い集計_${sumMonth}.csv`);
-  if(t.id === 'csvOne') downloadCsv(tableData(sumRows().filter(r => r.worker === sumWorker)), `支払い明細_${sumWorker}_${sumMonth}.csv`);
+  if(t.id === 'csvOne') downloadCsv(tableData(sumRows().filter(r => r.key === sumWorker)), `支払い明細_${sumLabel()}_${sumMonth}.csv`);
   if(t.dataset.copypreset){
     const p = data.settings.presets.find(x => x.id === t.dataset.copypreset);
     const txt = p ? presetText(p, readForm()) : '';
@@ -1492,6 +1683,7 @@ document.getElementById('right').addEventListener('click', async e => {
   if(t.id === 'redEdit') openRedactor();
   if(t.id === 'redRemove'){ red = {blob:null, dirty:false, exists:false, rects:red ? red.rects : null}; renderRedArea(); }
   if(t.id === 'linkWorker') linkWorker();
+  if(t.id === 'copyCalUrl') copy(calUrl(), false);
   if(t.dataset.unlink){
     if(unlinkArmed !== t.dataset.unlink){ unlinkArmed = t.dataset.unlink; t.textContent = 'もう一度で解除'; setTimeout(() => { unlinkArmed = null; t.textContent = '解除'; }, 3000); return; }
     unlinkArmed = null;
@@ -1543,10 +1735,23 @@ document.getElementById('right').addEventListener('click', async e => {
   if(t.id === 'exportBtn') exportAll();
   if(t.id === 'logoutBtn') logout();
   if(t.id === 'addWorkerSetting'){
-    const v = document.getElementById('newWorker').value.trim();
-    if(v && !data.settings.workers.includes(v)){ data.settings.workers.push(v); await persist(); refreshDatalist(); renderSettings(); }
+    const sei = document.getElementById('nwSei').value.trim();
+    const mei = document.getElementById('nwMei').value.trim();
+    const tag = cleanTag(document.getElementById('nwTag').value);
+    if(!sei){ toast('名字を入れてください'); document.getElementById('nwSei').focus(); return; }
+    if(data.settings.workers.some(w => w.sei === sei && w.mei === mei && w.tag === tag)){ toast('同じ人がすでに登録されています'); return; }
+    data.settings.workers.push({id: uid(), sei, mei, tag});
+    await persist(); refreshDatalist(); renderSettings();
+    const dup = data.settings.workers.filter(w => w.sei === sei);
+    toast(dup.length > 1 && dup.some(w => !w.tag) ? '同じ名字の人がいます。（ ）に区別を入れてください' : '追加しました');
   }
-  if(t.dataset.delworker !== undefined){ data.settings.workers.splice(Number(t.dataset.delworker),1); await persist(); refreshDatalist(); renderSettings(); }
+  if(t.dataset.delworker !== undefined){
+    const id = t.dataset.delworker;
+    if(delWorkerArmed !== id){ delWorkerArmed = id; t.textContent = 'もう一度で削除'; setTimeout(() => { if(delWorkerArmed === id){ delWorkerArmed = null; t.textContent = '削除'; } }, 3000); return; }
+    delWorkerArmed = null;
+    data.settings.workers = data.settings.workers.filter(w => w.id !== id);
+    await persist(); refreshDatalist(); renderSettings();
+  }
   if(t.id === 'addPreset'){
     data.settings.presets.push({id:uid(), name:'新しいパターン', labels:true, items:{property:true, address:true}});
     await persist(); renderSettings();
@@ -1564,6 +1769,13 @@ document.getElementById('right').addEventListener('click', async e => {
   if(t.dataset.delclient !== undefined){ data.settings.clients.splice(Number(t.dataset.delclient),1); await persist(); renderSettings(); }
 });
 document.getElementById('right').addEventListener('input', e => {
+  if(e.target.dataset.wreg){
+    const [id, k] = e.target.dataset.wreg.split(':');
+    const w = data.settings.workers.find(x => x.id === id);
+    const v = k === 'tag' ? cleanTag(e.target.value) : e.target.value.trim();
+    if(w && !(k === 'sei' && !v)){ w[k] = v; updateWregPreviews(); }
+    return;
+  }
   if(document.getElementById('stmt')){ updateSheet(); return; }
   if(document.getElementById('editor')) updatePreview();
 });
@@ -1583,12 +1795,24 @@ document.getElementById('right').addEventListener('change', async e => {
     if(t.id === 'st-comm'){ renderStatement(); }
     await persist(); return;
   }
+  if(t.dataset.wreg){
+    const [id, k] = t.dataset.wreg.split(':');
+    const w = data.settings.workers.find(x => x.id === id);
+    if(!w) return;
+    if(k === 'sei' && !t.value.trim()){ t.value = w.sei || ''; toast('名字は空にできません'); return; }
+    if(k === 'tag') t.value = w.tag;
+    await persist(); refreshDatalist(); return;
+  }
   if(t.dataset.issuer){ data.settings.issuer = data.settings.issuer || {}; data.settings.issuer[t.dataset.issuer] = t.value.trim(); await persist(); return; }
   if(t.dataset.payrule){ data.settings.payRule = data.settings.payRule || {months:2, day:10}; data.settings.payRule[t.dataset.payrule] = num(t.value); await persist(); return; }
   if(t.dataset.k === 'pick'){
-    const inp = t.closest('.wrow').querySelector('[data-k=name]');
-    if(t.value === '__other'){ inp.hidden = false; inp.value = ''; inp.focus(); }
-    else { inp.hidden = true; inp.value = t.value; }
+    const row = t.closest('.wrow');
+    const inp = row.querySelector('[data-k=name]'), wid = row.querySelector('[data-k=wid]');
+    if(t.value === '__other'){ inp.hidden = false; inp.value = ''; wid.value = ''; inp.focus(); }
+    else {
+      const p = data.settings.workers.find(x => x.id === t.value);
+      inp.hidden = true; inp.value = p ? shortName(p) : ''; wid.value = p ? p.id : '';
+    }
     updatePreview(); return;
   }
   if(t.id === 'sumMonth'){ if(t.value){ sumMonth = t.value; renderSummary(); } return; }

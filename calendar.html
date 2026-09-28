@@ -1,0 +1,473 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="現場カレンダー">
+<meta name="theme-color" content="#FFFFFF">
+<title>現場カレンダー</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#EEF0F3; --surface:#FFFFFF; --ink:#1E2430; --muted:#687080; --line:#D8DCE2;
+  --accent:#5B4FA3; --accent-soft:#ECE9F7; --gray-soft:#EDEEF0;
+  --amber:#9A6412; --amber-soft:#FBF1DF; --teal:#2F7D6D; --teal-soft:#E2F2EE;
+  --danger:#B42318; --sun:#C0392B; --sat:#2F6FB5;
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg)!important;color:var(--ink)}
+body{font-family:"BIZ UDPGothic","Hiragino Sans","Noto Sans JP",sans-serif;font-size:15px;line-height:1.6;-webkit-text-size-adjust:100%;min-height:100vh}
+body.noscroll{overflow:hidden}
+button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:8px 12px;cursor:pointer;white-space:nowrap;text-decoration:none;color:var(--ink);display:inline-block}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:700}
+.btn.small{padding:5px 10px;font-size:13px}
+.btn.wide{width:100%;padding:11px;margin-top:14px}
+
+header{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:8px;padding:10px 12px;padding-top:max(10px,env(safe-area-inset-top));background:var(--surface);border-bottom:1px solid var(--line)}
+header h1{font-size:17px;margin:0;flex:1;line-height:1.3;min-width:0}
+header h1 small{display:block;font-size:12px;color:var(--muted);font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.controls{max-width:1000px;margin:0 auto;padding:10px 12px 0;display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:space-between}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:9px;overflow:hidden;background:var(--surface)}
+.seg button{border:0;background:transparent;padding:7px 14px;cursor:pointer;font-size:14px}
+.seg button[aria-pressed="true"]{background:var(--ink);color:#fff;font-weight:700}
+.who select{border:1px solid var(--line);border-radius:9px;padding:7px 10px;background:var(--surface);font-size:14px;max-width:180px}
+main{max-width:1000px;margin:0 auto;padding:0 12px 60px}
+
+.total{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-top:12px;display:flex;justify-content:space-between;align-items:center;gap:10px;font-variant-numeric:tabular-nums}
+.total span{font-size:13px;color:var(--muted);line-height:1.4}
+.total b{font-size:21px;white-space:nowrap}
+.day h2{font-size:16px;margin:18px 2px 8px;display:flex;gap:8px;align-items:baseline}
+.day h2 span{color:var(--muted);font-size:14px;font-weight:400}
+.none{color:var(--muted);background:var(--surface);border:1px dashed var(--line);border-radius:10px;padding:14px;margin:0;text-align:center;font-size:14px}
+.card{display:grid;grid-template-columns:52px 1fr;gap:10px;width:100%;text-align:left;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:8px;cursor:pointer}
+.card.mine{border-color:#CFC8EE;box-shadow:inset 4px 0 0 var(--accent)}
+.c-time{font-weight:700;font-variant-numeric:tabular-nums;font-size:14px}
+.c-time.none-t{color:var(--muted);font-weight:400;font-size:12px}
+.c-title{font-weight:700;line-height:1.45;word-break:break-all}
+.c-sub{font-size:13px;color:var(--muted);margin-top:2px;word-break:break-all}
+.c-pay{font-size:13px;margin-top:4px;white-space:pre-line;font-variant-numeric:tabular-nums}
+.tagme{display:inline-block;font-size:11px;font-weight:700;color:var(--accent);background:var(--accent-soft);border-radius:999px;padding:1px 8px;margin-left:4px;vertical-align:2px}
+
+.cal-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:14px 0 8px}
+.cal-head b{font-size:18px;flex:1;text-align:center}
+.cgrid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));background:var(--surface);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.wd{font-size:12px;text-align:center;padding:5px 0;color:var(--muted);border-bottom:1px solid var(--line)}
+.wd.w0{color:var(--sun)} .wd.w6{color:var(--sat)}
+.cell{min-height:80px;border:0;border-left:1px solid var(--line);border-top:1px solid var(--line);background:var(--surface);padding:3px 2px 4px;text-align:left;display:flex;flex-direction:column;gap:2px;cursor:pointer;min-width:0;font-size:12px}
+.cell.c0{border-left:0}
+.cell.r0{border-top:0}
+.cell.out{background:#F7F8FA}
+.cell.out .dn{color:#B0B5BE!important}
+.dn{font-size:12px;font-weight:700;width:22px;height:22px;display:inline-grid;place-items:center;border-radius:50%;flex-shrink:0}
+.dow0 .dn{color:var(--sun)} .dow6 .dn{color:var(--sat)}
+.cell.today .dn{background:var(--ink);color:#fff!important}
+.cell.sel{box-shadow:inset 0 0 0 2px var(--accent)}
+.chip{display:block;font-size:10px;line-height:1.4;padding:1px 3px;border-radius:3px;background:var(--gray-soft);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chip.mine{background:var(--accent);color:#fff}
+.more{font-size:10px;color:var(--muted);padding-left:3px}
+.ch-l{display:none}
+@media (min-width:700px){.cell{min-height:112px;padding:4px}.chip{font-size:12px;padding:1px 5px}.more{font-size:12px}.ch-s{display:none}.ch-l{display:inline}}
+
+.detail{position:fixed;inset:0;z-index:40;background:var(--bg);overflow:auto;-webkit-overflow-scrolling:touch}
+.detail[hidden]{display:none}
+.d-bar{position:sticky;top:0;z-index:2;display:flex;align-items:center;gap:10px;padding:10px 12px;padding-top:max(10px,env(safe-area-inset-top));background:var(--surface);border-bottom:1px solid var(--line)}
+.d-bar b{flex:1;font-size:15px}
+.d-body{max-width:760px;margin:0 auto;padding:14px 12px 60px}
+.d-title{font-size:19px;line-height:1.45;margin:0 0 6px;word-break:break-all}
+.box{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px;margin-top:12px}
+.box h3{font-size:14px;margin:0 0 8px;color:var(--muted)}
+.fi{padding:7px 0;border-top:1px solid var(--line)}
+.fi:first-of-type{border-top:0;padding-top:0}
+.fl{font-size:12px;color:var(--muted)}
+.fv{white-space:pre-wrap;word-break:break-all}
+.fv a{color:var(--accent)}
+.fv .btn{margin-top:6px}
+.wl{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;padding:8px 0;border-top:1px solid var(--line);font-variant-numeric:tabular-nums}
+.wl:first-of-type{border-top:0;padding-top:0}
+.wl.me{color:var(--accent)}
+.wl small{display:block;color:var(--muted);font-size:12px}
+.wl .amt{text-align:right;font-weight:700;white-space:nowrap}
+.links{display:flex;gap:8px;flex-wrap:wrap}
+.muted{color:var(--muted);font-size:14px}
+.st{display:inline-block;font-size:12px;padding:1px 8px;border-radius:999px;font-weight:700;background:var(--gray-soft);color:var(--muted)}
+.st.s未手配{background:var(--amber-soft);color:var(--amber)}
+.st.s手配済{background:var(--accent-soft);color:var(--accent)}
+.st.s完了{background:var(--teal-soft);color:var(--teal)}
+
+.auth{position:fixed;inset:0;z-index:50;background:var(--bg);display:flex;align-items:center;justify-content:center;padding:20px}
+.auth[hidden]{display:none}
+.auth-card{width:100%;max-width:380px;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:24px}
+.auth-card h2{margin:0 0 4px;font-size:20px}
+.auth-card p{margin:0 0 16px;color:var(--muted);font-size:14px}
+.auth-card label{display:block;font-size:13px;color:var(--muted);margin-bottom:12px}
+.auth-card input{display:block;width:100%;margin-top:4px;border:1px solid var(--line);border-radius:8px;padding:10px;background:#FBFBFC;font-size:16px}
+.auth-card .btn{width:100%;padding:11px}
+.auth-msg{color:var(--danger);font-size:14px;margin-top:10px;min-height:1.4em}
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);background:var(--ink);color:#fff;padding:10px 18px;border-radius:999px;font-size:14px;opacity:0;pointer-events:none;transition:.2s;z-index:60;max-width:90vw;text-align:center}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+@media (prefers-reduced-motion:reduce){.toast{transition:none}}
+</style>
+</head>
+<body>
+<header>
+  <h1>現場カレンダー<small id="coName"></small></h1>
+  <button class="btn small" id="reloadBtn" aria-label="最新にする">更新</button>
+  <button class="btn small" id="logoutBtn">ログアウト</button>
+</header>
+<div class="controls" id="controls"></div>
+<main id="main"></main>
+<div class="detail" id="detail" hidden></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<div class="auth" id="auth"><div class="auth-card" id="authCard"><p>読み込み中…</p></div></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+const SUPABASE_URL = 'https://rriresvxisvdotdeqezs.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_BFrE93O1Z9F0ym80vISAUw_DaHsl_ru';
+const WEEK = ['日','月','火','水','木','金','土'];
+const ROLE_LABEL = {lead:'研修同行', trainee:'研修生'};
+
+let sb = null, me = null, companyName = '';
+let rows = [];                 // 予定表（作業員向けの項目だけ）
+let view = 'today';            // today | cal
+let who = 'all';               // 作業員: all | me　元請け: all | 作業員ID
+let cal = (() => { const d = new Date(); return {y: d.getFullYear(), m: d.getMonth() + 1}; })();
+let selDay = null;
+let detailId = null, pdfUrl = null, pdfFile = null;
+
+/* ---------- 小さな道具 ---------- */
+const pad = n => String(n).padStart(2, '0');
+function iso(d){ return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; }
+function parse(s){ const [y,m,d] = s.split('-').map(Number); return new Date(y, m-1, d); }
+function todayIso(){ return iso(new Date()); }
+function addDays(s, n){ const d = parse(s); d.setDate(d.getDate() + n); return iso(d); }
+function jpDay(s){ const d = parse(s); return `${d.getMonth()+1}月${d.getDate()}日(${WEEK[d.getDay()]})`; }
+function num(v){ if(v === '' || v == null) return 0; const n = Number(String(v).replace(/[^\d.-]/g,'')); return isNaN(n) ? 0 : n; }
+function yen(n){ return '¥' + Number(n || 0).toLocaleString('ja-JP'); }
+function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function store(k, v){ try{ if(v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); }catch(e){ return null; } }
+let toastTimer;
+function toast(msg){ const t = document.getElementById('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 1800); }
+async function copy(text){
+  try{ await navigator.clipboard.writeText(text); }
+  catch(e){ const ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0'; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); }
+  toast('コピーしました');
+}
+
+/* ---------- 予定の見え方 ---------- */
+function wks(r){ return Array.isArray(r.workers) ? r.workers : []; }
+function timeOf(r){ return r.start_time ? r.start_time.replace(/^0/, '') : ''; }
+function names(r){ return wks(r).map(w => w.name).filter(Boolean).join('・'); }
+function title(r){ return `${names(r)}${r.client ? `[${r.client}]` : ''}${r.property || ''}${r.room ? '　' + r.room : ''}`; }
+function payOf(w){ return num(w.pay) + num(w.extra); }
+function isEditor(){ return me && (me.role === 'owner' || me.role === 'staff'); }
+
+// 予定に入っている人の一覧（元請けさんが「誰の予定を見るか」を選ぶ用）
+function people(){
+  const m = new Map();
+  rows.forEach(r => wks(r).forEach(w => { if(w.name) m.set(w.wid || 'n:' + w.name, w.name); }));
+  return [...m].map(([key, name]) => ({key, name})).sort((a, b) => a.name.localeCompare(b.name, 'ja'));
+}
+// いま「自分」として扱う人
+function target(){
+  if(!isEditor()) return {wid: me.worker_id || '', name: me.worker_name || ''};
+  if(who === 'all') return null;
+  if(who.startsWith('n:')) return {wid: '', name: who.slice(2)};
+  const p = people().find(x => x.key === who);
+  return {wid: who, name: p ? p.name : ''};
+}
+function matchW(w, t){
+  if(!t) return false;
+  if(t.wid && w.wid) return w.wid === t.wid;
+  return !!t.name && w.name === t.name;
+}
+function isMine(r){ const t = target(); return !!t && wks(r).some(w => matchW(w, t)); }
+function filtering(){ return isEditor() ? who !== 'all' : who === 'me'; }
+function dayRows(d){
+  return rows.filter(r => r.work_date === d && (!filtering() || isMine(r)))
+    .sort((a, b) => ((a.start_time || '99') + a.property) < ((b.start_time || '99') + b.property) ? -1 : 1);
+}
+function payLine(r){
+  const paid = wks(r).filter(w => payOf(w) > 0);
+  if(!paid.length) return '';
+  const one = w => `${yen(w.pay)}税込${num(w.extra) ? '＋研修' : ''}`;
+  if(paid.length === 1) return one(paid[0]);
+  return paid.map(w => `${w.name || '（未定）'} ${one(w)}`).join('\n');
+}
+function monthTotal(ym){
+  const t = target();
+  let sum = 0, count = 0;
+  rows.forEach(r => {
+    if(!r.work_date || !r.work_date.startsWith(ym)) return;
+    const ws = t ? wks(r).filter(w => matchW(w, t)) : wks(r);
+    if(!ws.length) return;
+    count++;
+    ws.forEach(w => sum += payOf(w));
+  });
+  return {sum, count};
+}
+
+/* ---------- 画面 ---------- */
+function renderControls(){
+  const tabs = `<div class="seg" role="group" aria-label="表示">
+      <button data-view="today" aria-pressed="${view === 'today'}">今日・明日</button>
+      <button data-view="cal" aria-pressed="${view === 'cal'}">カレンダー</button>
+    </div>`;
+  let f;
+  if(isEditor()){
+    const ps = people();
+    f = `<label class="who"><select id="whoSel" aria-label="誰の予定を見るか">
+        <option value="all">全員の予定</option>
+        ${ps.map(p => `<option value="${esc(p.key)}" ${p.key === who ? 'selected' : ''}>${esc(p.name)}さんの予定だけ</option>`).join('')}
+      </select></label>`;
+  }else{
+    f = `<div class="seg" role="group" aria-label="絞り込み">
+        <button data-who="all" aria-pressed="${who === 'all'}">全員</button>
+        <button data-who="me" aria-pressed="${who === 'me'}">自分だけ</button>
+      </div>`;
+  }
+  document.getElementById('controls').innerHTML = tabs + f;
+}
+function totalCard(ym){
+  const t = target();
+  const {sum, count} = monthTotal(ym);
+  const m = Number(ym.slice(5));
+  const whose = !t ? '全員' : isEditor() ? `${t.name}さん` : '自分';
+  return `<div class="total"><span>${m}月の${esc(whose)}の支払合計（税込）<br>${count}件</span><b>${yen(sum)}</b></div>`;
+}
+function card(r){
+  const t = timeOf(r), pl = payLine(r);
+  return `<button class="card ${isMine(r) ? 'mine' : ''}" data-open="${esc(r.job_id)}">
+    <div class="c-time ${t ? '' : 'none-t'}">${t || '時間<br>未定'}</div>
+    <div>
+      <div class="c-title">${esc(title(r) || '（名前なし）')}</div>
+      ${r.address ? `<div class="c-sub">${esc(r.address)}</div>` : ''}
+      ${pl ? `<div class="c-pay">${esc(pl)}</div>` : ''}
+    </div>
+  </button>`;
+}
+function dayBlock(label, d){
+  const list = dayRows(d);
+  return `<section class="day"><h2>${label}${label ? `<span>${jpDay(d)}</span>` : jpDay(d)}</h2>
+    ${list.length ? list.map(card).join('') : `<p class="none">${filtering() ? 'この日の予定はありません' : '予定はありません'}</p>`}</section>`;
+}
+function renderToday(){
+  const t = todayIso();
+  return totalCard(t.slice(0, 7)) + dayBlock('今日', t) + dayBlock('明日', addDays(t, 1))
+    + `<button class="btn wide" data-view="cal">カレンダーで見る</button>`;
+}
+function renderCal(){
+  const {y, m} = cal;
+  const ym = `${y}-${pad(m)}`;
+  const first = new Date(y, m - 1, 1);
+  const start = new Date(y, m - 1, 1 - first.getDay());
+  const lastDay = new Date(y, m, 0).getDate();
+  const cellsN = Math.ceil((first.getDay() + lastDay) / 7) * 7;
+  const t = todayIso();
+  if(!selDay || !selDay.startsWith(ym)) selDay = t.startsWith(ym) ? t : ym + '-01';
+  let cells = '';
+  for(let i = 0; i < cellsN; i++){
+    const d = new Date(start); d.setDate(start.getDate() + i);
+    const s = iso(d), list = dayRows(s);
+    const cls = ['cell', 'dow' + d.getDay(), i % 7 === 0 ? 'c0' : '', i < 7 ? 'r0' : '',
+      d.getMonth() !== m - 1 ? 'out' : '', s === t ? 'today' : '', s === selDay ? 'sel' : ''].join(' ');
+    cells += `<button class="${cls}" data-day="${s}" aria-label="${jpDay(s)} 予定${list.length}件">
+      <span class="dn">${d.getDate()}</span>
+      ${list.slice(0, 3).map(r => `<span class="chip ${isMine(r) ? 'mine' : ''}"><span class="ch-s">${esc(r.property || title(r))}</span><span class="ch-l">${esc(title(r))}</span></span>`).join('')}
+      ${list.length > 3 ? `<span class="more">+${list.length - 3}</span>` : ''}
+    </button>`;
+  }
+  return `${totalCard(ym)}
+    <div class="cal-head">
+      <button class="btn small" data-mon="-1" aria-label="前の月">‹</button>
+      <b>${y}年${m}月</b>
+      <button class="btn small" data-mon="0">今日</button>
+      <button class="btn small" data-mon="1" aria-label="次の月">›</button>
+    </div>
+    <div class="cgrid">${WEEK.map((w, i) => `<div class="wd w${i}">${w}</div>`).join('')}${cells}</div>
+    ${dayBlock('', selDay)}`;
+}
+function render(){
+  renderControls();
+  document.getElementById('main').innerHTML = view === 'cal' ? renderCal() : renderToday();
+}
+
+/* ---------- 予定の詳細 ---------- */
+function fi(label, v){ return v ? `<div class="fi"><div class="fl">${label}</div><div class="fv">${esc(v)}</div></div>` : ''; }
+function openDetail(id, push = true){
+  const r = rows.find(x => x.job_id === id);
+  if(!r) return;
+  if(push) history.pushState({detail: id}, '');
+  detailId = id;
+  const t = target();
+  const el = document.getElementById('detail');
+  const addr = r.address || '';
+  const map = addr ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addr)}` : '';
+  const work = [fi('鍵情報', r.key_info), fi('作業可能時間', r.hours), fi('駐車場', r.parking), fi('工事内容', r.content),
+    fi('元請けからの注意事項', r.client_notes), fi('写真・報告のルール', r.report), fi('作業員向けメモ', r.worker_notes)].join('');
+  el.innerHTML = `
+    <div class="d-bar"><button class="btn small" data-close>‹ 戻る</button><b>${r.work_date ? jpDay(r.work_date) : '日程未定'}${timeOf(r) ? '　' + timeOf(r) : ''}</b>${r.status ? `<span class="st s${esc(r.status)}">${esc(r.status)}</span>` : ''}</div>
+    <div class="d-body">
+      <h1 class="d-title">${esc(title(r))}${isMine(r) ? `<span class="tagme">${isEditor() ? esc(t.name) + 'さん' : '自分'}の予定</span>` : ''}</h1>
+      <section class="box"><h3>担当・支払額（税込）</h3>
+        ${wks(r).length ? wks(r).map(w => `<div class="wl ${matchW(w, t) ? 'me' : ''}">
+          <div>${esc(w.name || '（未定）')}${ROLE_LABEL[w.role] ? `<small>${ROLE_LABEL[w.role]}</small>` : ''}</div>
+          <div class="amt">${payOf(w) ? yen(payOf(w)) : '—'}${num(w.extra) ? `<small>${yen(w.pay)}＋研修手当${yen(w.extra)}</small>` : ''}</div>
+        </div>`).join('') : '<p class="muted" style="margin:0">まだ決まっていません</p>'}
+      </section>
+      <section class="box"><h3>現場</h3>
+        ${fi('物件名', (r.property || '') + (r.room ? '　' + r.room : ''))}
+        ${fi('発注元', r.client)}
+        ${addr ? `<div class="fi"><div class="fl">住所</div><div class="fv"><a href="${map}" target="_blank" rel="noopener">${esc(addr)}</a><br><span class="links"><a class="btn small" href="${map}" target="_blank" rel="noopener">地図で開く</a><button class="btn small" data-copy="${esc(addr)}">住所をコピー</button></span></div></div>` : ''}
+        ${fi('間取り', r.layout)}
+      </section>
+      ${work ? `<section class="box"><h3>作業のこと</h3>${work}</section>` : ''}
+      ${r.dropbox || r.has_pdf ? `<section class="box"><h3>資料</h3>
+        ${r.has_pdf ? `<div class="fi"><div class="fl">発注書（金額は消してあります）</div><div class="fv" id="pdfBox"><span class="muted">発注書を読み込み中…</span></div></div>` : ''}
+        ${r.dropbox ? `<div class="fi"><div class="fl">Dropbox</div><div class="fv"><span class="links"><a class="btn small" href="${esc(r.dropbox)}" target="_blank" rel="noopener">Dropboxを開く</a><button class="btn small" data-copy="${esc(r.dropbox)}">リンクをコピー</button></span></div></div>` : ''}
+      </section>` : ''}
+    </div>`;
+  el.hidden = false; el.scrollTop = 0;
+  document.body.classList.add('noscroll');
+  if(r.has_pdf) loadPdf(r);
+}
+function hideDetail(){
+  detailId = null;
+  document.getElementById('detail').hidden = true;
+  document.body.classList.remove('noscroll');
+  if(pdfUrl){ URL.revokeObjectURL(pdfUrl); pdfUrl = null; pdfFile = null; }
+}
+function closeDetail(){ if(history.state && history.state.detail) history.back(); else hideDetail(); }
+window.addEventListener('popstate', () => { if(detailId) hideDetail(); });
+
+async function loadPdf(r){
+  const {data: blob, error} = await sb.storage.from('worker-pdfs').download(`${r.company_id}/${r.job_id}.pdf`);
+  const box = document.getElementById('pdfBox');
+  if(detailId !== r.job_id || !box) return;
+  if(error || !blob){ box.innerHTML = '<span class="muted">発注書を読み込めませんでした</span>'; return; }
+  if(pdfUrl) URL.revokeObjectURL(pdfUrl);
+  const b = new Blob([blob], {type: 'application/pdf'});
+  pdfUrl = URL.createObjectURL(b);
+  pdfFile = new File([b], `発注書_${(r.property || '') + (r.room || '')}.pdf`, {type: 'application/pdf'});
+  box.innerHTML = `<span class="links"><a class="btn small primary" href="${pdfUrl}" target="_blank" rel="noopener">📄 発注書を開く</a><button class="btn small" data-sharepdf>共有・保存</button></span>`;
+}
+async function sharePdf(){
+  if(!pdfFile) return;
+  try{
+    if(!navigator.share || (navigator.canShare && !navigator.canShare({files: [pdfFile]}))){ toast('この端末では共有メニューを開けません。「発注書を開く」をお使いください'); return; }
+    await navigator.share({files: [pdfFile], title: pdfFile.name});
+  }catch(e){ if(e && e.name !== 'AbortError') toast('共有できませんでした'); }
+}
+
+/* ---------- データ ---------- */
+async function loadRows(){
+  const from = new Date(); from.setMonth(from.getMonth() - 12);
+  const {data, error} = await sb.from('schedule').select('*')
+    .eq('company_id', me.company_id).gte('work_date', iso(from)).order('work_date');
+  if(error) throw error;
+  rows = data || [];
+}
+async function reload(quiet){
+  try{ await loadRows(); render(); if(detailId) openDetail(detailId, false); if(!quiet) toast('最新にしました'); }
+  catch(e){ if(!quiet) toast('読み込めませんでした。通信状況を確認してください'); }
+}
+
+/* ---------- ログイン ---------- */
+function showAuth(mode, msg = ''){
+  const box = document.getElementById('auth'), card = document.getElementById('authCard');
+  box.hidden = false;
+  if(mode === 'loading'){ card.innerHTML = '<p>読み込み中…</p>'; return; }
+  card.innerHTML = `<h2>現場カレンダー</h2><p>ログインしてください</p>
+    <label>メールアドレス<input id="loginEmail" type="email" autocomplete="username"></label>
+    <label>パスワード<input id="loginPass" type="password" autocomplete="current-password"></label>
+    <button class="btn primary" id="loginBtn">ログイン</button>
+    <div class="auth-msg" id="authMsg">${esc(msg)}</div>`;
+  document.getElementById('loginBtn').onclick = login;
+  document.getElementById('loginPass').onkeydown = e => { if(e.key === 'Enter') login(); };
+}
+async function login(){
+  const email = document.getElementById('loginEmail').value.trim();
+  const password = document.getElementById('loginPass').value;
+  const btn = document.getElementById('loginBtn');
+  if(!email || !password){ document.getElementById('authMsg').textContent = 'メールアドレスとパスワードを入れてください'; return; }
+  btn.disabled = true; btn.textContent = 'ログイン中…';
+  const {error} = await sb.auth.signInWithPassword({email, password});
+  if(error){ btn.disabled = false; btn.textContent = 'ログイン'; document.getElementById('authMsg').textContent = 'メールアドレスかパスワードが違います'; return; }
+  start();
+}
+async function start(){
+  showAuth('loading');
+  try{
+    const {data: mem, error} = await sb.from('members').select('*');
+    if(error) throw error;
+    if(!mem || !mem.length){ await sb.auth.signOut(); showAuth('login', 'このアカウントはまだ登録されていません。元請けさんに連絡してください'); return; }
+    me = mem.find(m => m.role === 'owner' || m.role === 'staff') || mem[0];
+    const {data: comp} = await sb.from('companies').select('name').eq('id', me.company_id).maybeSingle();
+    companyName = comp ? comp.name : '';
+    document.getElementById('coName').textContent = companyName;
+    await loadRows();
+    const saved = store('cal-who');
+    if(isEditor()) who = saved && (saved === 'all' || people().some(p => p.key === saved)) ? saved : 'all';
+    else who = saved === 'me' ? 'me' : 'all';
+    view = 'today';   // 開いたときは今日・明日から
+    document.getElementById('auth').hidden = true;
+    render();
+  }catch(e){
+    showAuth('login', '読み込みに失敗しました。通信状況を確認してもう一度ログインしてください');
+  }
+}
+async function logout(){
+  await sb.auth.signOut();
+  me = null; rows = []; hideDetail();
+  document.getElementById('main').innerHTML = ''; document.getElementById('controls').innerHTML = '';
+  document.getElementById('coName').textContent = '';
+  showAuth('login');
+}
+
+/* ---------- 操作 ---------- */
+document.addEventListener('click', e => {
+  const t = e.target.closest('button, a');
+  if(!t) return;
+  if(t.dataset.view){ view = t.dataset.view; render(); window.scrollTo(0, 0); return; }
+  if(t.dataset.who){ who = t.dataset.who; store('cal-who', who); render(); return; }
+  if(t.dataset.open){ openDetail(t.dataset.open); return; }
+  if(t.dataset.day){
+    selDay = t.dataset.day;
+    const d = parse(selDay);
+    if(d.getMonth() + 1 !== cal.m || d.getFullYear() !== cal.y) cal = {y: d.getFullYear(), m: d.getMonth() + 1};
+    render();
+    const list = document.querySelector('main .day');
+    if(list && window.innerWidth < 700) list.scrollIntoView({behavior: 'smooth', block: 'start'});
+    return;
+  }
+  if(t.dataset.mon !== undefined){
+    const n = Number(t.dataset.mon);
+    if(n === 0){ const d = new Date(); cal = {y: d.getFullYear(), m: d.getMonth() + 1}; selDay = todayIso(); }
+    else { const d = new Date(cal.y, cal.m - 1 + n, 1); cal = {y: d.getFullYear(), m: d.getMonth() + 1}; selDay = null; }
+    render(); return;
+  }
+  if(t.dataset.close !== undefined){ closeDetail(); return; }
+  if(t.dataset.copy){ copy(t.dataset.copy); return; }
+  if(t.dataset.sharepdf !== undefined){ sharePdf(); return; }
+  if(t.id === 'reloadBtn'){ if(me) reload(false); return; }
+  if(t.id === 'logoutBtn'){ if(me) logout(); return; }
+});
+document.addEventListener('change', e => {
+  if(e.target.id === 'whoSel'){ who = e.target.value; store('cal-who', who); render(); }
+});
+document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'visible' && me) reload(true); });
+
+(async () => {
+  if(!window.supabase){ showAuth('login', '読み込みに失敗しました。通信状況を確認して再読み込みしてください'); return; }
+  sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+  const {data: {session}} = await sb.auth.getSession();
+  if(session) start(); else showAuth('login');
+})();
+</script>
+</body>
+</html>
