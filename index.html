@@ -145,6 +145,25 @@ label.f textarea{min-height:72px;resize:vertical;line-height:1.55}
 .tag button:hover{background:#DADDE2}
 .addrow{display:flex;gap:6px}
 .addrow input{flex:1;min-width:0;border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:#FBFBFC}
+.flabel{font-size:13px;color:var(--muted)}
+.ebadge{font-size:12px;font-weight:700;border-radius:999px;padding:2px 9px;white-space:nowrap}
+.ebadge.ok{background:var(--teal-soft);color:var(--teal)}
+.ebadge.warn{background:var(--amber-soft);color:var(--amber)}
+.ok{color:var(--teal);font-weight:700}
+.warn{color:var(--amber);font-weight:700}
+em.ok,em.warn{font-style:normal}
+.parkauto{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:4px;border:1px solid var(--line);border-radius:8px;padding:9px 10px;background:#FBFBFC;font-variant-numeric:tabular-nums}
+.parkcap{font-size:12px;color:var(--muted);margin-top:4px}
+.exhead{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px}
+.exrow{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:8px}
+.exmain{display:flex;justify-content:space-between;gap:8px}
+.exmain .amt{white-space:nowrap;font-variant-numeric:tabular-nums}
+.exnote{font-size:14px;white-space:pre-wrap;word-break:break-all;margin-top:2px}
+.exfoot{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px;font-size:13px;color:var(--muted)}
+.exfoot > span:last-child{display:flex;gap:6px}
+.chip.exw{background:var(--amber-soft);color:var(--amber)}
+.notebtn{display:block;width:100%;text-align:left;border:0;cursor:pointer;font:inherit;font-size:13px;line-height:1.5}
+.srow .a .btn{margin-top:6px}
 .wreg{border-top:1px solid var(--line);padding:10px 0}
 .wreg:first-of-type{border-top:0;padding-top:0}
 .wreg-in{display:grid;grid-template-columns:1fr 1fr auto 72px auto;gap:6px;align-items:center}
@@ -283,7 +302,7 @@ const COPY_ITEMS = [
   ['status','状態', j => j.status],
   ['received','受注金額', j => j.received === '' ? '' : yen(j.received), true],
   ['expenses','経費・材料費', j => j.expenses === '' ? '' : yen(j.expenses), true],
-  ['parkingFee','駐車場代', j => j.parkingFee === '' ? '' : yen(j.parkingFee), true],
+  ['parkingFee','駐車場代', j => (j.parkingFee === '' && !parkReports(j).length) ? '' : yen(parkOf(j)), true],
   ['profit','粗利', j => j.received === '' ? '' : yen(profit(j)), true]
 ];
 function presetText(p, j){
@@ -360,9 +379,11 @@ function defaultData(){
       issuer:{name:'',zip:'',address:'',tel:'',fax:'',invoice:''},
       payRule:{months:2, day:10},
       statements:{},
+      expenseItems:['駐車場代','作業道具代','交通費','その他'],
       presets:[{id:'p1',name:'LINE用',labels:true,items:{date:true,property:true,address:true,key:true,hours:true,parking:true,content:true}}]
     },
-    jobs:[]
+    jobs:[],
+    expenses:[]
   };
 }
 
@@ -385,17 +406,25 @@ async function loadAll(){
   const d = defaultData();
   data.settings = Object.assign(d.settings, (st && st.data) || {});
   if(!data.settings.presets) data.settings.presets = [];
+  if(!Array.isArray(data.settings.expenseItems)) data.settings.expenseItems = defaultData().settings.expenseItems;
+  if(!data.settings.expenseItems.includes('駐車場代')) data.settings.expenseItems.unshift('駐車場代');
   const oldFormat = data.settings.workers.some(w => typeof w === 'string');
   data.settings.workers = normWorkers(data.settings.workers);
   if(oldFormat) await persist();   // 名字だけの古い登録を新しい形に
   await loadJobs();
   await linkOldJobs();
+  await loadExpenses();
   return true;
 }
 async function loadJobs(){
   const {data: rows, error} = await sb.from('jobs').select('id, data').eq('company_id', companyId);
   if(error) throw error;
   data.jobs = rows.map(r => Object.assign(blankJob(), r.data || {}, {id: r.id}));
+}
+// 作業員さんからの経費の報告（駐車場代など）
+async function loadExpenses(){
+  const {data: ex, error} = await sb.from('expenses').select('*').eq('company_id', companyId).order('created_at');
+  data.expenses = error ? [] : (ex || []);
 }
 // 名前だけで保存されている古い案件を、登録済みの作業員に結びつけて保存し直す
 // （あとから同じ名字の人を登録しても、誰の案件か分からなくならないように）
@@ -501,7 +530,26 @@ function exportAll(){
 /* ---------- money ---------- */
 function workerPay(w){ return num(w.pay) + (w.role === 'lead' ? num(data.settings.trainingFee) : 0); }
 function totalPay(j){ return j.workers.reduce((s,w) => s + workerPay(w), 0); }
-function profit(j){ return num(j.received) - totalPay(j) - num(j.expenses) - num(j.parkingFee); }
+function profit(j){ return num(j.received) - totalPay(j) - num(j.expenses) - parkOf(j) - otherExpOf(j); }
+/* 経費の報告 */
+const PARK = '駐車場代';
+function jobExp(id){ return id ? (data.expenses || []).filter(e => e.job_id === id) : []; }
+function sumAmt(list){ return list.reduce((s, e) => s + num(e.amount), 0); }
+// 駐車場代：報告があれば報告の合計、なければ手入力の金額
+function parkReports(j){ return jobExp(j.id).filter(e => e.item === PARK); }
+function parkOf(j){ const r = parkReports(j); return r.length ? sumAmt(r) : num(j.parkingFee); }
+// 駐車場代以外の立替（作業道具代など）
+function otherExpOf(j){ return sumAmt(jobExp(j.id).filter(e => e.item !== PARK)); }
+function unapproved(list){ return list.filter(e => !e.approved).length; }
+// 経費を報告した人を、登録済みの作業員に結びつける（集計・明細書用）
+function expKey(e){
+  const ws = data.settings.workers;
+  if(e.worker_id && ws.some(w => w.id === e.worker_id)) return e.worker_id;
+  const p = findWorker({name: e.worker_name || ''});
+  return p ? p.id : 'n:' + (e.worker_name || '（名前なし）');
+}
+function expLabel(e){ const p = data.settings.workers.find(w => w.id === expKey(e)); return p ? shortName(p) : (e.worker_name || '（名前なし）'); }
+function exStamp(s){ const d = new Date(s); return `${d.getMonth()+1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2,'0')}`; }
 
 /* ---------- TimeTree text ---------- */
 function ttTitle(j){
@@ -551,7 +599,12 @@ function renderList(){
     .sort((a,b) => (a.date || '0000') < (b.date || '0000') ? -1 : 1);
   const counts = s => data.jobs.filter(j => s === 'すべて' || j.status === s).length;
   const left = document.getElementById('left');
+  // 月が変わったら、先月までの未確認の経費をお知らせ
+  const now = new Date(), thisMonth = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+  const past = (data.expenses || []).filter(e => !e.approved && e.work_date && e.work_date < thisMonth + '-01');
+  const oldest = past.map(e => e.work_date.slice(0, 7)).sort()[0];
   left.innerHTML = `
+    ${past.length ? `<button class="note notebtn" data-gotoexp="${oldest}">⚠ 先月までの経費の報告に、未確認が ${past.length} 件あります。領収書と照らし合わせて確認してください ›</button>` : ''}
     <div class="filters" role="group" aria-label="状態で絞り込み">
       ${['すべて', ...STATUS].map(s => `<button data-filter="${s}" aria-pressed="${filter === s}">${s} ${counts(s)}</button>`).join('')}
     </div>
@@ -563,7 +616,7 @@ function renderList(){
         <div>
           <div class="jtitle">${esc(j.property || '（物件名なし）')} ${esc(j.room)}</div>
           <div class="jsub">${esc(j.client || '発注元なし')}　${esc(names)}</div>
-          <div class="jfoot"><span class="chip st-${j.status}">${j.status}</span><span class="jpay">支払 ${yen(totalPay(j))}</span></div>
+          <div class="jfoot"><span><span class="chip st-${j.status}">${j.status}</span>${unapproved(jobExp(j.id)) ? ' <span class="chip exw">経費 未確認</span>' : ''}</span><span class="jpay">支払 ${yen(totalPay(j))}</span></div>
         </div>
       </button>`;
     }).join('') : `<div class="empty">${filter === 'すべて' ? '案件はまだありません。<br>「＋ 新しい案件」から追加できます。' : `「${filter}」の案件はありません。`}</div>`}
@@ -654,8 +707,9 @@ function renderEditor(){
       <div class="grid">
         ${field('received','受注金額（税込）',j.received,{type:'number'})}
         ${field('expenses','経費・材料費',j.expenses,{type:'number'})}
-        ${field('parkingFee','駐車場代',j.parkingFee,{type:'number'})}
+        <div id="parkWrap" data-manual="${esc(j.parkingFee)}"></div>
       </div>
+      <div id="expArea" style="margin-top:14px"></div>
       <div class="money" id="money" style="margin-top:14px"></div>
     </section>
 
@@ -665,6 +719,7 @@ function renderEditor(){
     </div>
   </div>`;
   renderWorkers(j.workers);
+  renderParkField(); renderExpArea();
   updatePreview();
   pdf = null; pdfLoading = false;
   red = {blob:null, dirty:false, exists: !!(src && src.redactedPdf), rects: src && src.redactRects ? cloneRects(src.redactRects) : null};
@@ -689,6 +744,55 @@ function renderEditor(){
     }
   }
 }
+/* 駐車場代：作業員さんの報告があれば自動、なければ手入力 */
+function renderParkField(){
+  const wrap = document.getElementById('parkWrap');
+  if(!wrap) return;
+  const cur = document.getElementById('f-parkingFee');
+  const manual = cur ? cur.value : wrap.dataset.manual;
+  const reps = parkReports({id: currentId});
+  if(!reps.length){
+    wrap.innerHTML = `<label class="f">駐車場代<input id="f-parkingFee" type="number" inputmode="numeric" value="${esc(manual)}"></label>`;
+    return;
+  }
+  const n = unapproved(reps);
+  wrap.innerHTML = `<div class="flabel">駐車場代</div>
+    <div class="parkauto"><b>${yen(sumAmt(reps))}</b>${n ? `<span class="ebadge warn">⚠ 未確認 ${n}件</span>` : '<span class="ebadge ok">✅ 確認済</span>'}</div>
+    <div class="parkcap">作業員さんの報告の合計（${reps.length}件）</div>
+    <input id="f-parkingFee" type="hidden" value="${esc(manual)}">`;
+}
+/* 作業員さんからの経費の報告（コメントのように並べる） */
+function renderExpArea(){
+  const area = document.getElementById('expArea');
+  if(!area) return;
+  if(!currentId){ area.innerHTML = ''; return; }
+  const list = jobExp(currentId).slice().sort((a, b) => a.created_at < b.created_at ? -1 : 1);
+  const head = `<div class="exhead"><span class="flabel">作業員さんからの経費の報告</span><button type="button" class="btn small" id="exReload">最新にする</button></div>`;
+  if(!list.length){ area.innerHTML = head + '<p class="hint" style="margin:0">まだ報告はありません。作業員さんがカレンダーから報告すると、ここに出ます</p>'; return; }
+  const n = unapproved(list);
+  area.innerHTML = head + list.map(e => `<div class="exrow">
+      <div class="exmain"><div><b>${esc(expLabel(e))}</b>　${esc(e.item)}</div><b class="amt">${yen(e.amount)}</b></div>
+      ${e.note ? `<div class="exnote">${esc(e.note)}</div>` : ''}
+      <div class="exfoot"><span>${exStamp(e.created_at)}　${e.approved ? '<span class="ok">✅ 確認済</span>' : '<span class="warn">⚠ 未確認</span>'}</span>
+        <span><button type="button" class="btn small ${e.approved ? '' : 'primary'}" data-exok="${esc(e.id)}" data-val="${e.approved ? '0' : '1'}">${e.approved ? '確認を取り消す' : '確認する'}</button><button type="button" class="btn small danger" data-exdel="${esc(e.id)}">削除</button></span></div>
+    </div>`).join('')
+    + (n > 1 ? `<button type="button" class="btn small primary" data-exokjob="${esc(currentId)}">未確認 ${n}件をまとめて確認する</button>` : '');
+}
+async function approveExp(ids, val){
+  if(!ids.length) return;
+  const {error} = await sb.rpc('approve_expenses', {p_ids: ids, p_val: val});
+  if(error){ toast('確認できませんでした。通信状況を確認してください'); return; }
+  data.expenses.forEach(e => { if(ids.includes(e.id)){ e.approved = val; e.approved_at = val ? new Date().toISOString() : null; } });
+  toast(val ? `${ids.length}件を確認済みにしました` : '確認を取り消しました');
+  refreshExpViews();
+}
+function refreshExpViews(){
+  if(document.getElementById('editor')){ renderParkField(); renderExpArea(); updatePreview(); }
+  if(document.body.classList.contains('view-summary')) renderSummary();
+  renderList();
+}
+let exDelArmed = null;
+
 function renderPresetBox(j){
   const box = document.getElementById('presetBox');
   if(!box) return;
@@ -759,7 +863,7 @@ function readWorkers(){
 }
 function readForm(){
   const g = id => document.getElementById('f-' + id).value;
-  const j = {};
+  const j = {id: currentId};
   ['client','orderNo','property','room','address','layout','area','key','periodStart','periodEnd','hours','parking','content','cnotes','report','date','time','wnotes','dropbox','status'].forEach(k => j[k] = g(k).trim ? g(k).trim() : g(k));
   ['received','expenses','parkingFee'].forEach(k => j[k] = g(k) === '' ? '' : num(g(k)));
   j.workers = readWorkers();
@@ -779,13 +883,14 @@ function updatePreview(){
     r.querySelector('[data-k=sum]').textContent = `この人への支払 ${yen(workerPay(w))}${extra}`;
   });
   renderPresetBox(j);
-  const p = profit(j);
+  const p = profit(j), other = otherExpOf(j);
   document.getElementById('money').innerHTML = j.received === ''
     ? `<div><span>作業員への支払合計</span><span>${yen(totalPay(j))}</span></div><div style="color:var(--muted)">受注金額を入れると粗利を計算します</div>`
     : `<div><span>受注金額</span><span>${yen(j.received)}</span></div>
        <div><span>作業員への支払合計</span><span>−${yen(totalPay(j))}</span></div>
        <div><span>経費・材料費</span><span>−${yen(j.expenses)}</span></div>
-       <div><span>駐車場代</span><span>−${yen(j.parkingFee)}</span></div>
+       <div><span>駐車場代</span><span>−${yen(parkOf(j))}</span></div>
+       ${other ? `<div><span>作業員の立替（道具代など）</span><span>−${yen(other)}</span></div>` : ''}
        <div class="total"><span>粗利</span><span class="${p < 0 ? 'neg' : ''}">${p < 0 ? '−' + yen(-p) : yen(p)}</span></div>`;
 }
 
@@ -812,7 +917,79 @@ function monthLabel(){ const [y,m] = sumMonth.split('-'); return `${y}年${Numbe
 function shortDate(d){ const [y,mo,da] = d.split('-').map(Number); return `${mo}/${da}(${WEEK[new Date(y,mo-1,da).getDay()]})`; }
 function roleNote(r){ return r.role === 'lead' ? '研修手当込' : r.role === 'trainee' ? '研修' : ''; }
 
+let sumMode = 'pay';        // pay：作業員さんへの支払い　exp：経費の報告
+let sumExpWorker = null;
+function modeTabs(){
+  return `<div class="filters" role="group" aria-label="集計の種類" style="margin-bottom:6px">
+    <button data-summode="pay" aria-pressed="${sumMode === 'pay'}">作業員さんへの支払い</button>
+    <button data-summode="exp" aria-pressed="${sumMode === 'exp'}">経費の報告${(() => { const n = unapproved(data.expenses || []); return n ? `（未確認 ${n}）` : ''; })()}</button>
+  </div>`;
+}
+function expRows(){
+  return (data.expenses || [])
+    .filter(e => e.work_date && e.work_date.startsWith(sumMonth))
+    .map(e => ({e, key: expKey(e), label: expLabel(e), job: data.jobs.find(j => j.id === e.job_id) || {}}))
+    .sort((a, b) => (a.e.work_date + a.e.created_at) < (b.e.work_date + b.e.created_at) ? -1 : 1);
+}
+function expTable(rows){
+  return [['日付','作業員','物件名','部屋','項目','金額','メモ','確認'],
+    ...rows.map(r => [r.e.work_date, r.label, r.job.property || '', r.job.room || '', r.e.item, r.e.amount, r.e.note || '', r.e.approved ? '確認済' : '未確認'])];
+}
+function renderExpSummary(){
+  const all = expRows();
+  const right = document.getElementById('right');
+  const controls = `<div class="sum-controls"><label class="f">対象の月<input type="month" id="sumMonth" value="${sumMonth}"></label></div>`;
+  if(!sumExpWorker){
+    const g = {};
+    all.forEach(r => { const x = (g[r.key] ||= {label: r.label, count: 0, total: 0, wait: 0}); x.count++; x.total += num(r.e.amount); if(!r.e.approved) x.wait++; });
+    const keys = Object.keys(g).sort((a, b) => g[b].total - g[a].total);
+    const grand = all.reduce((s, r) => s + num(r.e.amount), 0);
+    right.innerHTML = `<div class="editor">
+      <div class="ed-head"><h2>経費の報告</h2></div>
+      ${modeTabs()}${controls}
+      <section class="box">
+        <h3>${monthLabel()}</h3>
+        <p class="hint">名前を押すと、その人の報告の一覧が見られます。領収書と照らし合わせて確認してください</p>
+        ${keys.length ? keys.map(k => `<button class="wsum" data-expworker="${esc(k)}"><div><b>${esc(g[k].label)}</b><br><span>${g[k].count}件　${g[k].wait ? `<em class="warn">⚠ 未確認 ${g[k].wait}件</em>` : '<em class="ok">✅ すべて確認済</em>'}</span></div><b>${yen(g[k].total)}</b></button>`).join('')
+          : '<div class="empty">この月の経費の報告はありません</div>'}
+        ${keys.length ? `<div class="sum-total"><span>全員の合計</span><span>${yen(grand)}</span></div>
+        <div class="actions">
+          <button class="btn" id="expTsvAll">全員分を表でコピー（Excel用）</button>
+          <button class="btn" id="expCsvAll">全員分をCSVで保存</button>
+        </div>` : ''}
+      </section>
+    </div>`;
+    return;
+  }
+  const rows = all.filter(r => r.key === sumExpWorker);
+  const p = data.settings.workers.find(w => w.id === sumExpWorker);
+  const label = p ? shortName(p) : (rows[0] ? rows[0].label : String(sumExpWorker).replace(/^n:/, ''));
+  const wait = rows.filter(r => !r.e.approved);
+  const total = rows.reduce((s, r) => s + num(r.e.amount), 0);
+  right.innerHTML = `<div class="editor">
+    <button class="linkback" id="expBack">‹ 全員の一覧へ</button>
+    <div class="ed-head"><h2>${esc(label)}さんの経費</h2></div>
+    ${controls}
+    <section class="box">
+      <h3>${monthLabel()}分</h3>
+      <p class="hint">領収書と合っていたら「確認」を押してください。確認済みの経費は支払明細書の諸経費に入ります</p>
+      <div>${rows.length ? rows.map(r => `<div class="srow">
+          <div class="d">${shortDate(r.e.work_date)}</div>
+          <div class="t">${esc(r.job.property || '（案件なし）')} ${esc(r.job.room || '')}<small>${esc(r.e.item)}${r.e.note ? '　' + esc(r.e.note) : ''}</small><small>${r.e.approved ? '<span class="ok">✅ 確認済</span>' : '<span class="warn">⚠ 未確認</span>'}</small></div>
+          <div class="a">${yen(r.e.amount)}<br><button type="button" class="btn small ${r.e.approved ? '' : 'primary'}" data-exok="${esc(r.e.id)}" data-val="${r.e.approved ? '0' : '1'}">${r.e.approved ? '取消' : '確認'}</button></div>
+        </div>`).join('') : '<div class="empty">この月の経費の報告はありません</div>'}</div>
+      ${rows.length ? `<div class="sum-total"><span>合計 ${rows.length}件</span><span>${yen(total)}</span></div>
+      <div class="actions">
+        ${wait.length ? `<button class="btn primary" id="expOkAll">未確認 ${wait.length}件をまとめて確認する</button>` : ''}
+        <button class="btn" id="expTsvOne">表でコピー（Excel用）</button>
+        <button class="btn" id="expCsvOne">CSVで保存</button>
+      </div>` : ''}
+    </section>
+  </div>`;
+}
+
 function renderSummary(){
+  if(sumMode === 'exp') return renderExpSummary();
   const all = sumRows();
   const right = document.getElementById('right');
   const controls = `<div class="sum-controls">
@@ -826,7 +1003,7 @@ function renderSummary(){
     const grand = all.reduce((s,r) => s + r.pay, 0);
     right.innerHTML = `<div class="editor">
       <div class="ed-head"><h2>作業員さんへの支払い</h2></div>
-      ${controls}
+      ${modeTabs()}${controls}
       <section class="box">
         <h3>${monthLabel()}</h3>
         <p class="hint">名前を押すと、その人の明細が見られます</p>
@@ -924,9 +1101,11 @@ function getDraft(){
       expense: '',
       rate: prev ? prev.commission.rate : 60
     },
-    misc: {amount:'', note: prev ? prev.misc.note : '諸経費は合計金額に合算しておりません。'}
+    misc: {amount: (() => { const a = sumAmt(workerExp().filter(e => e.approved)); return a ? String(a) : ''; })(), note: prev ? prev.misc.note : '諸経費は合計金額に合算しておりません。'}
   };
 }
+// この人のこの月の経費の報告
+function workerExp(){ return (data.expenses || []).filter(e => e.work_date && e.work_date.startsWith(sumMonth) && expKey(e) === sumWorker); }
 function readDraft(){
   const g = id => { const el = document.getElementById(id); return el ? el.value : ''; };
   const enabled = document.getElementById('st-comm') ? document.getElementById('st-comm').checked : false;
@@ -1038,6 +1217,12 @@ function renderStatement(){
         <label class="f">諸経費（合計には入れない）<input id="st-misc" type="number" inputmode="numeric" value="${esc(d.misc.amount)}"></label>
         <label class="f">諸経費の注記<input id="st-note" value="${esc(d.misc.note)}"></label>
       </div>
+      ${(() => {
+        const ex = workerExp(), ok = sumAmt(ex.filter(e => e.approved)), w = unapproved(ex);
+        if(!ex.length) return '';
+        return `<p class="hint" style="margin:8px 0 0">確認済みの経費の報告：<b>${yen(ok)}</b>${w ? `　<span class="warn">⚠ 未確認 ${w}件（集計の「経費の報告」で確認できます）</span>` : ''}
+          ${String(ok) !== String(num(d.misc.amount)) ? `<button type="button" class="btn small" id="stMiscFill" data-amt="${ok}" style="margin-left:6px">この金額を入れる</button>` : ''}</p>`;
+      })()}
     </section>
     <div class="actions" style="margin-bottom:14px">
       <button class="btn primary" id="stPrint">印刷・PDFで保存</button>
@@ -1539,6 +1724,12 @@ function renderSettings(){
       <div class="addrow" style="max-width:260px"><input id="trainingFee" type="number" inputmode="numeric" value="${s.trainingFee}"><span style="align-self:center">円</span></div>
     </section>
     <section class="box">
+      <h3>経費の項目</h3>
+      <p class="hint">作業員さんがカレンダーから経費を報告するときに選べる項目です。「駐車場代」は最初から選ばれていて、案件の駐車場代に自動で入ります</p>
+      <div class="tags">${s.expenseItems.map((it, i) => `<span class="tag" ${it === PARK ? 'style="padding-right:12px"' : ''}>${esc(it)}${it === PARK ? '' : `<button data-delitem="${i}" aria-label="${esc(it)}を削除">×</button>`}</span>`).join('')}</div>
+      <div class="addrow"><input id="newItem" placeholder="例：洗剤代"><button class="btn" id="addItem">追加</button></div>
+    </section>
+    <section class="box">
       <h3>TimeTreeのメモに載せる項目</h3>
       <p class="hint">作業員さんに見せてよい項目だけを選べます。受注金額や粗利は選べません。</p>
       <div class="checks">${MEMO_ITEMS.map(([k,l]) => `<label><input type="checkbox" data-memo="${k}" ${s.memo[k] ? 'checked' : ''}>${l}</label>`).join('')}</div>
@@ -1633,13 +1824,15 @@ async function sharePdf(){
 
 /* ---------- events ---------- */
 document.getElementById('newBtn').onclick = () => { currentId = null; show('edit'); };
-document.getElementById('summaryBtn').onclick = () => { currentId = null; sumWorker = null; show('summary'); };
+document.getElementById('summaryBtn').onclick = () => { currentId = null; sumWorker = null; sumExpWorker = null; show('summary'); };
 document.getElementById('settingsBtn').onclick = () => { currentId = null; show('settings'); };
 document.getElementById('backBtn').onclick = () => { currentId = null; show('list'); };
 
 document.getElementById('left').addEventListener('click', e => {
   const f = e.target.closest('[data-filter]');
   if(f){ filter = f.dataset.filter; renderList(); return; }
+  const ge = e.target.closest('[data-gotoexp]');
+  if(ge){ currentId = null; sumMode = 'exp'; sumMonth = ge.dataset.gotoexp; sumWorker = null; sumExpWorker = null; show('summary'); return; }
   const job = e.target.closest('.job');
   if(job){ currentId = job.dataset.id; show('edit'); }
 });
@@ -1682,6 +1875,37 @@ document.getElementById('right').addEventListener('click', async e => {
   }
   if(t.id === 'redEdit') openRedactor();
   if(t.id === 'redRemove'){ red = {blob:null, dirty:false, exists:false, rects:red ? red.rects : null}; renderRedArea(); }
+  /* 経費の報告 */
+  if(t.dataset.exok){ approveExp([t.dataset.exok], t.dataset.val === '1'); return; }
+  if(t.dataset.exokjob){ approveExp(jobExp(t.dataset.exokjob).filter(e => !e.approved).map(e => e.id), true); return; }
+  if(t.id === 'expOkAll'){ approveExp(expRows().filter(r => r.key === sumExpWorker && !r.e.approved).map(r => r.e.id), true); return; }
+  if(t.dataset.exdel){
+    const id = t.dataset.exdel;
+    if(exDelArmed !== id){ exDelArmed = id; t.textContent = 'もう一度で削除'; setTimeout(() => { if(exDelArmed === id){ exDelArmed = null; t.textContent = '削除'; } }, 3000); return; }
+    exDelArmed = null;
+    const {error} = await sb.rpc('delete_expense', {p_id: id});
+    if(error){ toast('削除できませんでした'); return; }
+    data.expenses = data.expenses.filter(e => e.id !== id);
+    toast('削除しました'); refreshExpViews(); return;
+  }
+  if(t.id === 'exReload'){ await loadExpenses(); refreshExpViews(); toast('最新にしました'); return; }
+  if(t.dataset.summode){ sumMode = t.dataset.summode; sumWorker = null; sumExpWorker = null; renderSummary(); return; }
+  if(t.closest('[data-expworker]')){ sumExpWorker = t.closest('[data-expworker]').dataset.expworker; renderSummary(); window.scrollTo(0,0); return; }
+  if(t.id === 'expBack'){ sumExpWorker = null; renderSummary(); return; }
+  if(t.id === 'expTsvAll') copy(toTsv(expTable(expRows())), false);
+  if(t.id === 'expCsvAll') downloadCsv(expTable(expRows()), `経費_${sumMonth}.csv`);
+  if(t.id === 'expTsvOne') copy(toTsv(expTable(expRows().filter(r => r.key === sumExpWorker))), false);
+  if(t.id === 'expCsvOne'){ const rs = expRows().filter(r => r.key === sumExpWorker); downloadCsv(expTable(rs), `経費_${rs[0] ? rs[0].label : ''}_${sumMonth}.csv`); }
+  if(t.id === 'stMiscFill'){
+    document.getElementById('st-misc').value = t.dataset.amt;
+    data.settings.statements[stmtKey()] = readDraft(); await persist(); renderStatement(); return;
+  }
+  if(t.id === 'addItem'){
+    const v = document.getElementById('newItem').value.trim();
+    if(v && !data.settings.expenseItems.includes(v)){ data.settings.expenseItems.push(v); await persist(); renderSettings(); }
+    return;
+  }
+  if(t.dataset.delitem !== undefined){ data.settings.expenseItems.splice(Number(t.dataset.delitem), 1); await persist(); renderSettings(); return; }
   if(t.id === 'linkWorker') linkWorker();
   if(t.id === 'copyCalUrl') copy(calUrl(), false);
   if(t.dataset.unlink){
@@ -1829,7 +2053,7 @@ document.addEventListener('visibilitychange', async () => {
   if(document.visibilityState !== 'visible' || !companyId) return;
   const v = document.body.className;
   if(v !== 'view-list' && v !== 'view-summary') return;   // 編集中は再読み込みしない
-  try{ await loadJobs(); renderList(); if(v === 'view-summary') renderSummary(); }catch(e){}
+  try{ await loadJobs(); await loadExpenses(); renderList(); if(v === 'view-summary') renderSummary(); }catch(e){}
 });
 
 (async () => {

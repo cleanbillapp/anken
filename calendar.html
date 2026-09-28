@@ -100,6 +100,23 @@ main{max-width:1000px;margin:0 auto;padding:0 12px 60px}
 .st.s手配済{background:var(--accent-soft);color:var(--accent)}
 .st.s完了{background:var(--teal-soft);color:var(--teal)}
 
+.total .ex{display:block;margin-top:2px}
+.exi{padding:9px 0;border-top:1px solid var(--line)}
+.exi:first-child{border-top:0;padding-top:0}
+.exi-top{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.exi-top b{font-variant-numeric:tabular-nums;white-space:nowrap}
+.exi small{display:block;color:var(--muted);font-size:12px}
+.exi .note{white-space:pre-wrap;word-break:break-all;font-size:14px}
+.exi .links{margin-top:6px}
+.ok{color:var(--teal);font-weight:700}
+.wait{color:var(--amber);font-weight:700}
+.exform{border:1px solid var(--line);border-radius:10px;padding:12px;margin-top:10px;background:#FBFBFC}
+.exform label{display:block;font-size:13px;color:var(--muted);margin-top:10px}
+.exform input{display:block;width:100%;margin-top:4px;border:1px solid var(--line);border-radius:8px;padding:10px;background:#fff;font-size:16px}
+.itms{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
+.itm{border:1px solid var(--line);background:#fff;border-radius:999px;padding:6px 12px;cursor:pointer;font-size:14px}
+.itm[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:700}
+.exform .links{margin-top:12px}
 .auth{position:fixed;inset:0;z-index:50;background:var(--bg);display:flex;align-items:center;justify-content:center;padding:20px}
 .auth[hidden]{display:none}
 .auth-card{width:100%;max-width:380px;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:24px}
@@ -139,6 +156,11 @@ let who = 'all';               // 作業員: all | me　元請け: all | 作業�
 let cal = (() => { const d = new Date(); return {y: d.getFullYear(), m: d.getMonth() + 1}; })();
 let selDay = null;
 let detailId = null, pdfUrl = null, pdfFile = null;
+const DEFAULT_ITEMS = ['駐車場代', '作業道具代', '交通費', 'その他'];
+let exps = [];                 // 経費の報告
+let items = DEFAULT_ITEMS.slice();
+let exForm = null;             // 入力中の報告 {id, item, amount, note}
+let exDelArmed = null;
 
 /* ---------- 小さな道具 ---------- */
 const pad = n => String(n).padStart(2, '0');
@@ -238,7 +260,17 @@ function totalCard(ym){
   const {sum, count} = monthTotal(ym);
   const m = Number(ym.slice(5));
   const whose = !t ? '全員' : isEditor() ? `${t.name}さん` : '自分';
-  return `<div class="total"><span>${m}月の${esc(whose)}の支払合計（税込）<br>${count}件</span><b>${yen(sum)}</b></div>`;
+  const ex = exps.filter(e => e.work_date && e.work_date.startsWith(ym) && expMatch(e));
+  const exSum = ex.reduce((s, e) => s + e.amount, 0), exWait = ex.filter(e => !e.approved).length;
+  const exLine = ex.length ? `<span class="ex">経費の報告 ${yen(exSum)}${exWait ? `（確認待ち ${exWait}件）` : '（すべて確認済）'}</span>` : '';
+  return `<div class="total"><span>${m}月の${esc(whose)}の支払合計（税込）<br>${count}件${exLine}</span><b>${yen(sum)}</b></div>`;
+}
+function expMatch(e){
+  if(!isEditor()) return e.user_id === me.user_id;
+  const t = target();
+  if(!t) return true;
+  if(t.wid && e.worker_id) return e.worker_id === t.wid;
+  return e.worker_name === t.name;
 }
 function card(r){
   const t = timeOf(r), pl = payLine(r);
@@ -302,7 +334,7 @@ function fi(label, v){ return v ? `<div class="fi"><div class="fl">${label}</div
 function openDetail(id, push = true){
   const r = rows.find(x => x.job_id === id);
   if(!r) return;
-  if(push) history.pushState({detail: id}, '');
+  if(push){ history.pushState({detail: id}, ''); exForm = null; }
   detailId = id;
   const t = target();
   const el = document.getElementById('detail');
@@ -331,13 +363,84 @@ function openDetail(id, push = true){
         ${r.has_pdf ? `<div class="fi"><div class="fl">発注書（金額は消してあります）</div><div class="fv" id="pdfBox"><span class="muted">発注書を読み込み中…</span></div></div>` : ''}
         ${r.dropbox ? `<div class="fi"><div class="fl">Dropbox</div><div class="fv"><span class="links"><a class="btn small" href="${esc(r.dropbox)}" target="_blank" rel="noopener">Dropboxを開く</a><button class="btn small" data-copy="${esc(r.dropbox)}">リンクをコピー</button></span></div></div>` : ''}
       </section>` : ''}
+      ${exBoxHtml(r)}
     </div>`;
   el.hidden = false; el.scrollTop = 0;
   document.body.classList.add('noscroll');
   if(r.has_pdf) loadPdf(r);
 }
+/* ---------- 経費の報告（予定のコメントのように並べる） ---------- */
+function jobExps(id){ return exps.filter(e => e.job_id === id).sort((a, b) => a.created_at < b.created_at ? -1 : 1); }
+function stamp(s){ const d = new Date(s); return `${d.getMonth()+1}/${d.getDate()} ${d.getHours()}:${pad(d.getMinutes())}`; }
+function exBoxHtml(r){
+  const list = jobExps(r.job_id);
+  const canAdd = !isEditor();
+  if(!list.length && !canAdd) return '';
+  return `<section class="box" id="exBox"><h3>経費の報告</h3>
+    ${list.length ? list.map(exItemHtml).join('') : '<p class="muted" style="margin:0">駐車場代などを使ったら、ここから報告してください</p>'}
+    ${canAdd ? (exForm ? exFormHtml() : '<button class="btn small primary" data-exnew style="margin-top:10px">＋ 経費を報告</button>') : ''}
+  </section>`;
+}
+function exItemHtml(e){
+  const mine = !isEditor() && e.user_id === me.user_id;
+  return `<div class="exi">
+    <div class="exi-top"><span>${esc(e.worker_name || '')}　${esc(e.item)}</span><b>${yen(e.amount)}</b></div>
+    ${e.note ? `<div class="note">${esc(e.note)}</div>` : ''}
+    <small>${stamp(e.created_at)}　${e.approved ? '<span class="ok">✅ 確認済</span>' : '<span class="wait">確認待ち</span>'}</small>
+    ${mine && !e.approved && !exForm ? `<span class="links"><button class="btn small" data-exedit="${esc(e.id)}">直す</button><button class="btn small" data-exdel="${esc(e.id)}">消す</button></span>` : ''}
+  </div>`;
+}
+function exFormHtml(){
+  const f = exForm;
+  const opts = items.includes(f.item) ? items : [...items, f.item];
+  return `<div class="exform">
+    <div class="fl">${f.id ? '報告を直す' : '経費を報告'}</div>
+    <div class="fl" style="margin-top:8px">項目</div>
+    <div class="itms" role="group" aria-label="項目">${opts.map(i => `<button type="button" class="itm" data-itm="${esc(i)}" aria-pressed="${i === f.item}">${esc(i)}</button>`).join('')}</div>
+    <label>金額（円）<input id="exAmt" type="number" inputmode="numeric" min="1" value="${esc(f.amount)}"></label>
+    <label>メモ（駐車場の名前など・なくてもOK）<input id="exNote" value="${esc(f.note)}"></label>
+    <span class="links"><button class="btn primary" data-exsend>${f.id ? '直す' : '報告する'}</button><button class="btn" data-excancel>やめる</button></span>
+  </div>`;
+}
+function refreshExBox(){
+  const r = rows.find(x => x.job_id === detailId);
+  const box = document.getElementById('exBox');
+  if(!r || !box) return;
+  box.outerHTML = exBoxHtml(r);
+}
+function syncForm(){
+  const a = document.getElementById('exAmt');
+  if(a && exForm){ exForm.amount = a.value; exForm.note = document.getElementById('exNote').value; }
+}
+async function sendExp(btn){
+  syncForm();
+  const amt = Number(exForm.amount);
+  if(!exForm.amount || !Number.isInteger(amt) || amt <= 0){ toast('金額を入れてください'); document.getElementById('exAmt').focus(); return; }
+  btn.disabled = true; btn.textContent = '送信中…';
+  const args = {p_item: exForm.item, p_amount: amt, p_note: exForm.note.trim()};
+  const editing = !!exForm.id;
+  const {error} = editing
+    ? await sb.rpc('update_expense', {p_id: exForm.id, ...args})
+    : await sb.rpc('add_expense', {p_job: detailId, ...args});
+  if(error){
+    if(String(error.message || '').includes('確認済み')){ toast('確認済みになったため直せません'); exForm = null; await loadExps(); refreshExBox(); return; }
+    btn.disabled = false; btn.textContent = editing ? '直す' : '報告する';
+    toast('送れませんでした。通信状況を確認してください'); return;
+  }
+  exForm = null;
+  await loadExps(); refreshExBox(); document.getElementById('main').innerHTML = view === 'cal' ? renderCal() : renderToday();
+  toast(editing ? '直しました' : '報告しました');
+}
+async function deleteExp(btn, id){
+  if(exDelArmed !== id){ exDelArmed = id; btn.textContent = 'もう一度で消す'; setTimeout(() => { if(exDelArmed === id){ exDelArmed = null; btn.textContent = '消す'; } }, 3000); return; }
+  exDelArmed = null;
+  const {error} = await sb.rpc('delete_expense', {p_id: id});
+  toast(error ? '消せませんでした' : '消しました');
+  await loadExps(); refreshExBox(); document.getElementById('main').innerHTML = view === 'cal' ? renderCal() : renderToday();
+}
+
 function hideDetail(){
-  detailId = null;
+  detailId = null; exForm = null;
   document.getElementById('detail').hidden = true;
   document.body.classList.remove('noscroll');
   if(pdfUrl){ URL.revokeObjectURL(pdfUrl); pdfUrl = null; pdfFile = null; }
@@ -371,9 +474,23 @@ async function loadRows(){
     .eq('company_id', me.company_id).gte('work_date', iso(from)).order('work_date');
   if(error) throw error;
   rows = data || [];
+  await loadExps();
+}
+async function loadExps(){
+  const from = new Date(); from.setMonth(from.getMonth() - 12);
+  const {data, error} = await sb.from('expenses').select('*').eq('company_id', me.company_id).gte('work_date', iso(from));
+  exps = error ? [] : (data || []);
+}
+async function loadItems(){
+  const {data, error} = await sb.rpc('get_expense_items');
+  if(!error && Array.isArray(data)){
+    const list = data.filter(x => typeof x === 'string' && x.trim());
+    if(list.length) items = list;
+  }
+  if(!items.includes('駐車場代')) items.unshift('駐車場代');
 }
 async function reload(quiet){
-  try{ await loadRows(); render(); if(detailId) openDetail(detailId, false); if(!quiet) toast('最新にしました'); }
+  try{ await loadRows(); render(); if(detailId && !exForm) openDetail(detailId, false); else if(detailId) refreshExBox(); if(!quiet) toast('最新にしました'); }
   catch(e){ if(!quiet) toast('読み込めませんでした。通信状況を確認してください'); }
 }
 
@@ -410,7 +527,7 @@ async function start(){
     const {data: comp} = await sb.from('companies').select('name').eq('id', me.company_id).maybeSingle();
     companyName = comp ? comp.name : '';
     document.getElementById('coName').textContent = companyName;
-    await loadRows();
+    await Promise.all([loadRows(), loadItems()]);
     const saved = store('cal-who');
     if(isEditor()) who = saved && (saved === 'all' || people().some(p => p.key === saved)) ? saved : 'all';
     else who = saved === 'me' ? 'me' : 'all';
@@ -452,6 +569,12 @@ document.addEventListener('click', e => {
     render(); return;
   }
   if(t.dataset.close !== undefined){ closeDetail(); return; }
+  if(t.dataset.exnew !== undefined){ exForm = {id: null, item: '駐車場代', amount: '', note: ''}; refreshExBox(); const a = document.getElementById('exAmt'); if(a) a.focus(); return; }
+  if(t.dataset.exedit){ const e = exps.find(x => x.id === t.dataset.exedit); if(e){ exForm = {id: e.id, item: e.item, amount: String(e.amount), note: e.note || ''}; refreshExBox(); } return; }
+  if(t.dataset.excancel !== undefined){ exForm = null; refreshExBox(); return; }
+  if(t.dataset.itm){ syncForm(); exForm.item = t.dataset.itm; document.querySelectorAll('.itm').forEach(b => b.setAttribute('aria-pressed', b.dataset.itm === exForm.item)); return; }
+  if(t.dataset.exsend !== undefined){ sendExp(t); return; }
+  if(t.dataset.exdel){ deleteExp(t, t.dataset.exdel); return; }
   if(t.dataset.copy){ copy(t.dataset.copy); return; }
   if(t.dataset.sharepdf !== undefined){ sharePdf(); return; }
   if(t.id === 'reloadBtn'){ if(me) reload(false); return; }
